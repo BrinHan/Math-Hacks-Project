@@ -114,6 +114,21 @@
           <div class="chart-plot"></div>
         </div>
       </section>
+      <details class="card" id="howItWorks">
+        <summary>How it works</summary>
+        <ol class="howto">
+          <li><b>Where arrests happen.</b> The campus is a grid of cells. Each cell's expected
+            public cardiac arrests per year come from the people present by time of day, adult
+            incidence (55 per 100,000 per year) and the extra risk of being out in public.</li>
+          <li><b>How fast an AED arrives.</b> A bystander walks to each candidate site and back,
+            plus time to set off and to reach the AED inside the building. Locked buildings
+            cannot help in that period. Only shockable-rhythm arrests (26.5%) benefit.</li>
+          <li><b>Where to put them.</b> An integer program (HiGHS) picks the sites that maximise
+            expected survivors above what the ambulance alone would achieve, within the budget.
+            Greedy is a fast near-optimal alternative; the Monte Carlo and sensitivity charts
+            show how much the answer moves when the inputs are uncertain.</li>
+        </ol>
+      </details>
       <details class="card">
         <summary>Assumptions and parameters</summary>
         <div class="tablewrap"><table id="params" class="params"></table></div>
