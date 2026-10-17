@@ -33,6 +33,11 @@ class Instance:
     def n_periods(self) -> int:
         return len(self.periods)
 
+    def summary(self) -> str:
+        open_counts = " ".join(f"{p}={int(n)}" for p, n in zip(self.periods, self.site_open.sum(axis=0)))
+        return (f"{self.n_cells} cells, {self.n_sites} sites ({int(self.site_existing.sum())} existing), "
+                f"open by period {open_counts}, {self.cell_rate.sum():.2f} public arrests/yr")
+
     def validate(self) -> None:
         I, J, P = self.n_cells, self.n_sites, self.n_periods
         shapes = {
@@ -70,3 +75,6 @@ def metres_to_latlon(xy: np.ndarray, origin_latlon: tuple[float, float]) -> np.n
     lat = lat0 + xy[:, 1] / M_PER_DEG_LAT
     lon = lon0 + xy[:, 0] / (M_PER_DEG_LAT * np.cos(np.radians(lat0)))
     return np.column_stack([lat, lon])
+
+
+__all__ = ["Instance", "metres_to_latlon"]

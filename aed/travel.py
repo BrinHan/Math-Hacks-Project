@@ -6,7 +6,7 @@ from aed.params import Params
 
 
 def travel_time_matrix(inst: Instance, params: Params) -> np.ndarray:
-    """(I, J) seconds: dispatch delay + round trip at walking speed + floor delay.
+    """(I, J) seconds: tau_ij = dispatch_delay + 2 * detour * d_ij / v + floor_delay_j.
 
     Distance is Euclidean x detour factor (fallback until OSMnx network distances).
     """

@@ -20,6 +20,15 @@ class Params:
     band_edges_s: tuple[float, ...] = tuple(float(s) for s in range(60, 601, 60))
     max_tau_s: float = 600.0
 
+    def __post_init__(self):
+        if self.survival_form not in ("exp", "linear"):
+            raise ValueError(f"survival_form must be 'exp' or 'linear', got {self.survival_form!r}")
+        edges = self.band_edges_s
+        if not edges or any(b <= a for a, b in zip(edges, edges[1:])):
+            raise ValueError("band_edges_s must be non-empty and strictly increasing")
+        if self.max_tau_s <= 0:
+            raise ValueError("max_tau_s must be positive")
+
 
 RANGES: dict[str, tuple[float, float]] = {
     "incidence_per_100k_yr": (40.0, 70.0),
@@ -45,3 +54,17 @@ CITATIONS: dict[str, str] = {
     "band_edges_s": "ASSUMPTION: 1-minute time bands up to 10 minutes.",
     "max_tau_s": "ASSUMPTION: an AED more than 10 minutes away is treated as unreachable.",
 }
+
+
+def param_table(p: Params | None = None) -> list[dict]:
+    """One row per parameter: name, base value, (low, high) range if varied, citation."""
+    p = p or Params()
+    rows = []
+    for name, citation in CITATIONS.items():
+        lo, hi = RANGES.get(name, (None, None))
+        rows.append({"name": name, "base": getattr(p, name), "low": lo, "high": hi,
+                     "citation": citation})
+    return rows
+
+
+__all__ = ["Params", "RANGES", "CITATIONS", "param_table"]

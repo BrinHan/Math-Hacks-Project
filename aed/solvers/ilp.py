@@ -8,6 +8,7 @@ Variables [x (J) binary, z (R) continuous in [0, 1]]:
 z is integral at the optimum once x is binary, so only x needs integrality.
 """
 import time
+import warnings
 
 import numpy as np
 import scipy.sparse as sp
@@ -39,6 +40,8 @@ def solve_ilp(cov: Coverage, budget: float, time_limit_s: float = 60.0,
                options={"time_limit": time_limit_s, "mip_rel_gap": mip_rel_gap})
     if res.x is None:
         raise RuntimeError(f"ILP failed: {res.message}")
+    if res.status == 1:
+        warnings.warn(f"ILP stopped at the {time_limit_s:.0f}s time limit; result may be suboptimal")
     x = res.x[:J] > 0.5
     return Solution(x=x, lives=evaluate(cov, x), method="ilp",
                     runtime_s=time.perf_counter() - start,

@@ -62,3 +62,25 @@ def test_build_pipeline():
     inst, cov = build(seed=0, grid_n=12, n_sites=40, n_existing=2)
     assert cov.A.shape[1] == inst.n_sites == 40
     assert np.array_equal(cov.site_existing, inst.site_existing)
+
+
+def test_max_lives_is_all_sites(tiny_instance):
+    cov = cov_for(tiny_instance)
+    assert cov.max_lives() == pytest.approx(evaluate(cov, np.ones(8, bool)))
+    assert cov.n_rows == cov.A.shape[0]
+
+
+def test_band_sets_nested(tiny_instance):
+    cov = cov_for(tiny_instance)
+    sites = {}
+    for r in range(cov.n_rows):
+        key = (cov.row_cell[r], cov.row_period[r], cov.row_band[r])
+        sites[key] = set(cov.A.indices[cov.A.indptr[r]:cov.A.indptr[r + 1]])
+    for (i, q, k), s in sites.items():
+        if (i, q, k + 1) in sites:
+            assert s <= sites[(i, q, k + 1)]
+
+
+def test_coverage_summary(tiny_instance):
+    s = cov_for(tiny_instance).summary()
+    assert set(s) == {"rows", "sites", "nonzeros", "max_lives"} and s["sites"] == 8
