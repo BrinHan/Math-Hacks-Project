@@ -57,3 +57,9 @@ def test_floor_delay_adds_directly():
 def test_linear_band_benefits_non_increasing():
     edges, b = band_benefits(Params(survival_form="linear"))
     assert edges.size > 0 and np.all(np.diff(b) <= 0) and np.all(b > 0)
+
+
+def test_survival_vectorized():
+    t = np.array([[0.0, 60.0], [120.0, 600.0]])
+    s = survival(t, Params())
+    assert s.shape == (2, 2) and np.all(np.diff(s.ravel()) < 0)
