@@ -72,3 +72,6 @@ def build_coverage(inst: Instance, tau: np.ndarray, params: Params) -> Coverage:
                     row_period=cat(rows_p, np.int64), row_band=cat(rows_k, np.int64),
                     site_cost=inst.site_cost.astype(float).copy(),
                     site_existing=inst.site_existing.copy(), n_periods=inst.n_periods)
+
+
+__all__ = ["Coverage", "build_coverage"]
