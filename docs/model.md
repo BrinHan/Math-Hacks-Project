@@ -24,3 +24,9 @@ tau_ij = dispatch_delay + 2 * detour * distance_ij / walk_speed + floor_delay_j
 ```
 
 Distance is straight-line times a detour factor until real walking paths (OSMnx) are added.
+
+## Survival and the ambulance baseline
+
+Survival if shocked t minutes after collapse: `S(t) = S0 * exp(-k t)`. Without a nearby
+AED the patient waits for the ambulance, so the benefit of an AED arriving within band
+T_k is `b_k = max(0, S(T_k) - S(T_ems))`. Bands slower than the ambulance are worth 0.
