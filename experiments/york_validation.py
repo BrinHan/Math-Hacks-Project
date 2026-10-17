@@ -1,5 +1,7 @@
 """Compare York's 19 published AEDs with the model's best placements -> results/york_validation.json.
 
+Three steps: York's AEDs as published, the same AEDs moved to their building's nearest door,
+and the best 19 sites anywhere. Repeated under structural scenarios so the headline is a range.
 Run: python experiments/york_validation.py --out results
 """
 import argparse
@@ -13,77 +15,103 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aed.coverage import build_coverage  # noqa: E402
-from aed.data.york import FLOOR_DELAY_ENTRANCE_S, PERIODS, load_york  # noqa: E402
+from aed.data import york  # noqa: E402
 from aed.data.york_tables import load_buildings  # noqa: E402
 from aed.params import Params  # noqa: E402
 from aed.solvers.common import evaluate  # noqa: E402
 from aed.solvers.ilp import solve_ilp  # noqa: E402
 from aed.travel import travel_time_matrix  # noqa: E402
 
-GAP_S = 240.0   # collapse-to-shock over 4 minutes (60 s to set off, walk both ways, find the AED)
+GAP_WALK_S = 180.0   # a building is a gap if the nearest published AED is over 3 min walk one way
+
+SCENARIOS = [
+    ("base case", {}, None),
+    ("handbook beds only", {"beds": "handbook"}, None),
+    ("all housing incl. private", {"beds": "all"}, None),
+    ("no residents", {"beds": "none"}, None),
+    ("no outdoor cabinets", {"outdoor_cabinets": False}, None),
+    ("York AEDs 20 s to reach", {}, york.FLOOR_DELAY_ENTRANCE_S),
+]
 
 
-def main(out="results") -> dict:
-    p = Params()
-    inst = load_york(p)
-    tau = travel_time_matrix(inst, p)
-    cov = build_coverage(inst, tau, p)
-    york = inst.site_existing.copy()
-    n_york = int(york.sum())
-
-    # Re-siting: the same number of AEDs, anywhere, unit cost, nothing pre-installed.
+def _steps(p: Params, load_kwargs: dict, existing_delay) -> dict:
+    inst = york.load_york(p, **load_kwargs)
+    names = np.array(york.site_buildings(**load_kwargs))
+    published = inst.site_existing.copy()
+    if existing_delay is not None:
+        inst = dataclasses.replace(inst, site_floor_delay=np.where(published, existing_delay,
+                                                                   inst.site_floor_delay))
+    # nothing pre-installed, unit cost: every placement competes on the same terms
     free = dataclasses.replace(inst, site_existing=np.zeros(inst.n_sites, dtype=bool),
                                site_cost=np.ones(inst.n_sites))
-    free_cov = build_coverage(free, tau, p)
-    best = solve_ilp(free_cov, n_york)
-    york_lives = evaluate(free_cov, york)
-    # Fairness check: York's AEDs as quick to reach as an entrance-mounted one.
-    door = dataclasses.replace(free, site_floor_delay=np.where(york, FLOOR_DELAY_ENTRANCE_S,
-                                                               free.site_floor_delay))
-    york_at_door = evaluate(build_coverage(door, travel_time_matrix(door, p), p), york)
+    cov = build_coverage(free, travel_time_matrix(free, p), p)
 
-    # Which buildings get an AED: nearest kept building to each chosen site.
-    kept = [b for b in load_buildings() if b["kind"] != "ignore"]
-    centres = np.array([[b["cx"], b["cy"]] for b in kept])
+    door = np.zeros(inst.n_sites, dtype=bool)
+    candidates = ~published & (np.array(inst.site_kind) != "outdoor")
+    for j in np.flatnonzero(published):
+        same = np.flatnonzero(candidates & (names == names[j]))
+        if len(same):
+            door[same[np.argmin(np.linalg.norm(inst.site_xy[same] - inst.site_xy[j], axis=1))]] = True
+        else:
+            door[j] = True
+    best = solve_ilp(cov, int(published.sum()))
+    out = {"published": evaluate(cov, published), "published_at_door": evaluate(cov, door),
+           "best": best.lives}
+    out["gain_vs_published_pct"] = 100 * (out["best"] / out["published"] - 1)
+    out["gain_vs_door_pct"] = 100 * (out["best"] / out["published_at_door"] - 1)
+    out["best_buildings"] = sorted(set(names[best.x]))
+    return out
 
-    def building_of(j):
-        return kept[int(np.argmin(np.linalg.norm(centres - inst.site_xy[j], axis=1)))]["name"]
 
-    best_buildings = sorted({building_of(j) for j in np.flatnonzero(best.x) if inst.site_kind[j] != "outdoor"})
-    york_buildings = sorted({building_of(j) for j in np.flatnonzero(york)})
-
-    # Coverage gaps: busy buildings whose nearest published AED is over 4 minutes away
-    # (weekday afternoon, AED must be open).
-    q = PERIODS.index("weekday_afternoon")
-    reach = np.where(york & inst.site_open[:, q], tau, np.inf).min(1)
+def _gaps(p: Params) -> list[dict]:
+    """Busy buildings whose nearest published AED (open on weekday afternoons) is over
+    3 minutes' walk one way, by walking-path distance from the building's centre cell."""
+    inst = york.load_york(p)
+    q = york.PERIODS.index("weekday_afternoon")
+    usable = inst.site_existing & inst.site_open[:, q]
+    walk_s = np.where(usable, inst.walk_dist_m, np.inf).min(1) / p.walk_speed_mps
+    hazard = p.public_fraction / p.away_time_share
     gaps = []
     for b in load_buildings():
         if b["kind"] == "ignore":
             continue
         cell = int(np.argmin(np.linalg.norm(inst.cell_xy - [b["cx"], b["cy"]], axis=1)))
-        if reach[cell] > GAP_S:
-            gaps.append({"building": b["name"] or f"osm {b['osm_id']}", "kind": b["kind"],
-                         "seconds_to_aed": None if np.isinf(reach[cell]) else round(float(reach[cell])),
-                         "weekday_rate": round(float(inst.cell_rate[cell, :2].sum()), 5)})
-    gaps.sort(key=lambda g: -g["weekday_rate"])
+        if walk_s[cell] <= GAP_WALK_S:
+            continue
+        people = york._building_people(b, york._beds(b, "york"))
+        rate = float((people * york.PERIOD_HOURS)[:2].sum() / 24 * p.incidence_per_100k_yr / 1e5 * hazard)
+        gaps.append({"building": york._label(b), "kind": b["kind"],
+                     "walk_to_nearest_published_aed_s": round(float(walk_s[cell])),
+                     "weekday_arrests_per_year": round(rate, 4)})
+    return sorted(gaps, key=lambda g: -g["weekday_arrests_per_year"])
 
+
+def main(out="results") -> dict:
+    p = Params()
+    table = []
+    for label, kwargs, delay in SCENARIOS:
+        r = _steps(p, kwargs, delay)
+        table.append({"scenario": label, **{k: (round(v, 5) if isinstance(v, float) else v)
+                                            for k, v in r.items()}})
+        print(f"{label:28s} published {r['published']:.4f}  at door {r['published_at_door']:.4f}  "
+              f"best {r['best']:.4f}  gain {r['gain_vs_published_pct']:+.0f}% "
+              f"({r['gain_vs_door_pct']:+.0f}% vs door)")
+    gains = [row["gain_vs_published_pct"] for row in table]
+    door_gains = [row["gain_vs_door_pct"] for row in table]
+    gaps = _gaps(p)
     result = {
-        "n_published_aeds": n_york,
-        "lives_published_19": round(york_lives, 5),
-        "lives_best_19": round(best.lives, 5),
-        "resiting_gain_pct": round(100 * (best.lives - york_lives) / york_lives, 1) if york_lives else None,
-        "lives_published_19_at_door": round(york_at_door, 5),
-        "best_19_outdoor_cabinets": int(sum(inst.site_kind[j] == "outdoor" for j in np.flatnonzero(best.x))),
-        "best_19_buildings": best_buildings,
-        "published_buildings": york_buildings,
-        "shared_buildings": sorted(set(best_buildings) & set(york_buildings)),
-        "gap_threshold_s": GAP_S,
+        "n_published_aeds": 19,
+        "base": table[0],
+        "gain_vs_published_range_pct": [round(min(gains)), round(max(gains))],
+        "gain_vs_door_range_pct": [round(min(door_gains)), round(max(door_gains))],
+        "scenarios": table,
+        "gap_walk_threshold_s": GAP_WALK_S,
         "coverage_gaps": gaps[:15],
     }
     path = Path(out) / "york_validation.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, indent=1))
-    print(json.dumps({k: v for k, v in result.items() if k != "coverage_gaps"}, indent=1))
+    print("gain range", result["gain_vs_published_range_pct"], "vs door", result["gain_vs_door_range_pct"])
     print("top gaps:", [g["building"] for g in gaps[:8]])
     return result
 
