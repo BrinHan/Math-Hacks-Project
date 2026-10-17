@@ -10,6 +10,8 @@ export interface Instance {
   siteFloorDelay: Float64Array; // (J,) seconds
   siteOpen: Uint8Array;       // (J, P) 0/1
   siteExisting: Uint8Array;   // (J,) 0/1
+  siteForced?: Uint8Array;    // (J,) 0/1 must-include (custom datasets only)
+  siteName?: string[];        // (J,) display names (custom datasets only)
   siteKind: string[];
   periods: string[];
   periodHours: number[];

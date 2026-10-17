@@ -3,14 +3,22 @@ import { buildCoverage, Coverage, travelTimeMatrix } from "./model/coverage";
 import { generateInstance, Instance } from "./model/instance";
 import { DEFAULT_PARAMS, Params } from "./model/params";
 
-/** "lead" = the lead's exported campus (public/data/lead.json); otherwise a synthetic seed. */
-export type Source = { kind: "lead" } | { kind: "synthetic"; seed: number };
+/**
+ * "lead" = the team's exported campus (public/data/lead.json); "synthetic" = the app's random grid;
+ * "custom" = uploaded or drawn locations, identified by an edit version so stale caches are dropped.
+ */
+export type Source = { kind: "lead" } | { kind: "synthetic"; seed: number } | { kind: "custom"; version: number };
 export interface Scenario { params: Params; inst: Instance; tau: Float64Array; cov: Coverage }
 
 let leadInst: Instance | null = null;
 export function setLeadInstance(inst: Instance) { leadInst = inst; cached = null; }
 
-const sourceKey = (s: Source) => (s.kind === "lead" ? "lead" : `seed${s.seed}`);
+let customInst: { version: number; inst: Instance } | null = null;
+export function setCustomInstance(inst: Instance, version: number) { customInst = { version, inst }; }
+export function customVersion() { return customInst?.version ?? -1; }
+
+export const sourceKey = (s: Source) =>
+  s.kind === "lead" ? "lead" : s.kind === "synthetic" ? `seed${s.seed}` : `custom${s.version}`;
 let cached: { key: string; value: Scenario } | null = null;
 
 export function scenario(source: Source, emsResponseS: number): Scenario {
@@ -21,6 +29,9 @@ export function scenario(source: Source, emsResponseS: number): Scenario {
     if (source.kind === "lead") {
       if (!leadInst) throw new Error("lead dataset not loaded");
       inst = leadInst;
+    } else if (source.kind === "custom") {
+      if (!customInst || customInst.version !== source.version) throw new Error("custom dataset not loaded");
+      inst = customInst.inst;
     } else {
       inst = generateInstance(source.seed, {}, params);
     }

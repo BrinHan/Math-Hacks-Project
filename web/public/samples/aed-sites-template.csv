@@ -1,0 +1,11 @@
+site_id,name,latitude,longitude,type,existing_aed,must_include
+1,Example Library,43.7737,-79.5034,library,yes,
+2,Example Residence North,43.7766,-79.5031,residential,,
+3,Example Residence South,43.7703,-79.5040,residential,,
+4,Example Lecture Hall,43.7728,-79.5011,academic,yes,
+5,Example Dining Hall,43.7716,-79.5048,dining,,
+6,Example Gym,43.7745,-79.5089,athletic,,
+7,Example Outdoor Cabinet (bus loop),43.7748,-79.4995,outdoor,,yes
+8,Example Science Building,43.7731,-79.5064,academic,,
+9,Example Student Centre,43.7724,-79.4993,other,,
+10,Example Outdoor Cabinet (parking),43.7690,-79.5005,outdoor,,

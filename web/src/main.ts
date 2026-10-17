@@ -9,8 +9,12 @@ import { CITATIONS } from "./model/params";
 import type { Solution } from "./model/solvers";
 import { LeadData, leadInstance, loadLead } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
-import { scenario, setLeadInstance, Source } from "./scenario";
+import { scenario, setCustomInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
+import {
+  CustomDataset, datasetFromInstance, datasetToInstance, KINDS, loadDataset, newId, saveDataset,
+} from "./custom/dataset";
+import { initUpload, ImportResult } from "./custom/upload";
 
 // Fastest-AED bands on the map (seconds); anything at or past EMS arrival is "unreached".
 const BANDS = [
@@ -31,21 +35,24 @@ const PERIOD_NAMES: Record<string, string> = { day: "Day", evening: "Evening", n
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const ui = {
-  seed: $<HTMLInputElement>("seed"),
   budget: $<HTMLInputElement>("budget"),
   budgetOut: $<HTMLOutputElement>("budgetOut"),
   ems: $<HTMLInputElement>("ems"),
   emsOut: $<HTMLOutputElement>("emsOut"),
   periods: $("periods"),
-  candidates: $<HTMLInputElement>("candidates"),
   metrics: $("metrics"),
+  uploadBtn: $<HTMLButtonElement>("uploadBtn"),
+  copyBtn: $<HTMLButtonElement>("copyBtn"),
+  clearBtn: $<HTMLButtonElement>("clearBtn"),
+  arrestsField: $("arrestsField"),
+  arrests: $<HTMLInputElement>("arrests"),
   bars: $("bars"),
   sites: $<HTMLTableElement>("sites"),
   params: $<HTMLTableElement>("params"),
   busy: $("busy"),
   busyText: $("busyText"),
   siteCount: $("siteCount"),
-  seedField: $("seedField"),
+  datasetSeg: $("datasetSeg"),
   datasetNote: $("datasetNote"),
   charts: $("charts"),
   kcurve: $("kcurve"),
@@ -63,13 +70,22 @@ const solveCache = new Map<string, Solution>();
 
 let lead: LeadData | null = null; // the lead's exported campus + results, if present
 
-const settings = () => ({
-  source: (lead && document.querySelector<HTMLInputElement>("input[name=dataset]:checked")?.value === "lead"
-    ? { kind: "lead" }
-    : { kind: "synthetic", seed: Math.max(0, Math.floor(Number(ui.seed.value) || 0)) }) as Source,
-  budget: Number(ui.budget.value),
-  emsResponseS: Number(ui.ems.value) * 60,
-});
+// Uploaded or drawn locations. Every edit bumps `customVer`, which keys the scenario and solve caches.
+let custom: CustomDataset | null = loadDataset();
+let customVer = 0;
+
+const datasetChoice = () => document.querySelector<HTMLInputElement>("input[name=dataset]:checked")?.value;
+const settings = () => {
+  const c = datasetChoice();
+  const source: Source = c === "lead" && lead ? { kind: "lead" }
+    : c === "custom" && custom ? { kind: "custom", version: customVer }
+    : lead ? { kind: "lead" }
+    // No team export: the app's placeholder campus keeps the page usable.
+    : { kind: "synthetic", seed: 0 };
+  return { source, budget: Number(ui.budget.value), emsResponseS: Number(ui.ems.value) * 60 };
+};
+const isCustom = () => settings().source.kind === "custom";
+const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 // ---------- map ----------
 const map = L.map("map", { preferCanvas: true, zoomControl: true, maxBoundsViscosity: 1.0 });
@@ -85,18 +101,36 @@ map.createPane("labels");
 map.getPane("labels")!.style.zIndex = "450"; // above the cell overlay, below markers
 map.getPane("labels")!.style.pointerEvents = "none";
 L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { ...tileOpts, pane: "labels" }).addTo(map);
-const cellLayer = L.layerGroup().addTo(map);
-const siteLayer = L.layerGroup().addTo(map);
+// Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
+// control's on/off state persists.
+const heatLayer = L.layerGroup().addTo(map);       // cells / demand coloured by time to the nearest AED
+const demandLayer = L.layerGroup();                // raw demand points
+const candidateLayer = L.layerGroup();             // candidate sites without an AED
+const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
+const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
+L.control.layers(undefined, {
+  "Optimization heatmap": heatLayer,
+  "Raw demand points": demandLayer,
+  "Existing AEDs": existingLayer,
+  "Recommended AEDs": newLayer,
+  "Candidate AED sites": candidateLayer,
+}, { position: "topright", collapsed: window.matchMedia("(max-width: 600px)").matches }).addTo(map);
+
 let fittedFor = "";
-let campusBounds: L.LatLngBounds | null = null;
-/** Fit the campus and lock the view to it: no zooming out past it, no panning away. */
-function lockToCampus() {
-  if (!campusBounds) return;
+let viewBounds: L.LatLngBounds | null = null;
+let viewLoose = false; // custom data: allow a little zoom-out and panning so points can be added nearby
+
+/** Fit the dataset and limit the view to it: zoom-out stops at the data, panning stays near it. */
+function lockToData(animate = false) {
+  if (!viewBounds) return;
   map.invalidateSize();
   map.setMinZoom(0); // let fitBounds pick the zoom before clamping to it
-  map.fitBounds(campusBounds, { padding: [10, 10], animate: false });
-  map.setMinZoom(map.getZoom());
-  map.setMaxBounds(campusBounds.pad(0.05));
+  map.setMaxBounds(undefined as unknown as L.LatLngBounds);
+  const fitZoom = map.getBoundsZoom(viewBounds, false, L.point(20, 20));
+  map.setMinZoom(Math.max(0, fitZoom - (viewLoose ? 2 : 0)));
+  map.setMaxBounds(viewBounds.pad(viewLoose ? 0.75 : 0.05));
+  if (animate && !document.hidden && !reducedMotion.matches) map.flyToBounds(viewBounds, { padding: [20, 20], duration: 0.8 });
+  else map.fitBounds(viewBounds, { padding: [20, 20], animate: false });
 }
 // The container can change size after first paint (fonts, layout breakpoints); refit then.
 let lastSize = "";
@@ -105,8 +139,27 @@ new ResizeObserver(([entry]) => {
   const size = `${Math.round(width)}x${Math.round(height)}`;
   if (size === lastSize) return; // ignore no-op notifications so a fly-to is never cancelled
   lastSize = size;
-  lockToCampus();
+  lockToData();
 }).observe(document.getElementById("map")!);
+
+/** Geographic bounds of everything in the instance (grid cells padded by half a cell). */
+function instanceBounds(inst: ReturnType<typeof scenario>["inst"]): L.LatLngBounds {
+  const half = inst.cellSizeM / 2;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const take = (x: number, y: number, pad: number) => {
+    minX = Math.min(minX, x - pad); maxX = Math.max(maxX, x + pad);
+    minY = Math.min(minY, y - pad); maxY = Math.max(maxY, y + pad);
+  };
+  for (let i = 0; i < inst.nCells; i++) take(inst.cellXY[2 * i], inst.cellXY[2 * i + 1], half);
+  for (let j = 0; j < inst.nSites; j++) take(inst.siteXY[2 * j], inst.siteXY[2 * j + 1], 0);
+  if (!Number.isFinite(minX)) { minX = minY = -250; maxX = maxY = 250; }
+  // Keep a minimum span so a single point does not zoom to street level.
+  const span = 300;
+  if (maxX - minX < span) { const c = (minX + maxX) / 2; minX = c - span / 2; maxX = c + span / 2; }
+  if (maxY - minY < span) { const c = (minY + maxY) / 2; minY = c - span / 2; maxY = c + span / 2; }
+  const sw = metresToLatLon(minX, minY, inst.originLatLon), ne = metresToLatLon(maxX, maxY, inst.originLatLon);
+  return L.latLngBounds([sw, ne]);
+}
 
 const legend = new L.Control({ position: "bottomleft" });
 legend.onAdd = () => {
@@ -139,15 +192,18 @@ function bandColour(t: number, emsS: number) {
   return BANDS.find((b) => t <= b.edge)!.colour;
 }
 
+let refitPending = false; // set by imports and copies: fly to the new data on the next draw
+
 function drawMap() {
   const { source, emsResponseS } = settings();
   const { inst, tau } = scenario(source, emsResponseS);
   const x = state.solution?.x ?? inst.siteExisting;
   const q = state.period, P = inst.periods.length, J = inst.nSites;
   const ll = (mx: number, my: number) => metresToLatLon(mx, my, inst.originLatLon);
+  const editable = source.kind === "custom";
+  const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
-  cellLayer.clearLayers();
-  siteLayer.clearLayers();
+  for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer]) g.clearLayers();
   markers.clear();
 
   let maxRate = 0;
@@ -159,40 +215,53 @@ function drawMap() {
       if (x[j] && inst.siteOpen[j * P + q]) t = Math.min(t, tau[i * J + j]);
     }
     const rate = inst.cellRate[i * P + q];
+    const share = maxRate > 0 ? rate / maxRate : 0;
     const cx = inst.cellXY[2 * i], cy = inst.cellXY[2 * i + 1];
-    L.rectangle([ll(cx - half, cy - half), ll(cx + half, cy + half)], {
-      stroke: false, fillColor: bandColour(t, emsResponseS),
-      fillOpacity: maxRate > 0 ? 0.18 + 0.5 * (rate / maxRate) : 0.18,
-    }).bindTooltip(`${Number.isFinite(t) ? `<b>${(t / 60).toFixed(1)} min</b> to nearest AED` : "No AED in reach"}<br>${rate.toFixed(4)} arrests / yr`)
-      .addTo(cellLayer);
+    const tip = `${Number.isFinite(t) ? `<b>${(t / 60).toFixed(1)} min</b> to nearest AED` : "No AED in reach"}<br>${rate.toFixed(4)} arrests / yr`;
+    if (half > 0) {
+      L.rectangle([ll(cx - half, cy - half), ll(cx + half, cy + half)], {
+        stroke: false, fillColor: bandColour(t, emsResponseS), fillOpacity: 0.18 + 0.5 * share,
+      }).bindTooltip(tip).addTo(heatLayer);
+    } else {
+      // Point demand (custom data): a soft disc per point, larger where more arrests are expected.
+      L.circleMarker(ll(cx, cy), {
+        radius: 6 + 10 * Math.sqrt(share), stroke: false, fillColor: bandColour(t, emsResponseS), fillOpacity: 0.25 + 0.4 * share,
+      }).bindTooltip(tip).addTo(heatLayer);
+    }
+    const dot = L.circleMarker(ll(cx, cy), { radius: editable ? 3.5 : 2, color: "#0e1014", weight: editable ? 1 : 0, fillColor: "#d4d4d8", fillOpacity: 0.85 })
+      .bindTooltip(`Demand point<br>${rate.toFixed(4)} arrests / yr`).addTo(demandLayer);
+    if (editable) dot.on("click", (e) => { L.DomEvent.stop(e); openDemandEditor(i); });
   }
 
   for (let j = 0; j < J; j++) {
     const open = inst.siteOpen[j * P + q] === 1;
     const pos = ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1]);
+    const forced = inst.siteForced?.[j] === 1;
     if (x[j]) {
       const role = inst.siteExisting[j] ? "existing" : "new";
       const m = L.circleMarker(pos, {
-        radius: MARKER_R, color: "#0e1014", weight: 2, fillOpacity: 1,
-        fillColor: open ? SITE[role] : SITE.locked,
-      }).bindTooltip(`<b>Site ${j}</b> · ${role === "new" ? "New" : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
-        .addTo(siteLayer);
-      if (role === "new") {
-        markers.set(j, m);
-        m.on("click", () => selectSite(j, { scrollRow: true }));
-      }
-    } else if (ui.candidates.checked) {
-      L.circleMarker(pos, { radius: 2.5, stroke: false, fillColor: "#94a3b8", fillOpacity: open ? 0.75 : 0.25 })
-        .bindTooltip(`Site ${j} · candidate<br>${cap(inst.siteKind[j])}`).addTo(siteLayer);
+        radius: MARKER_R, fillOpacity: 1, fillColor: open ? SITE[role] : SITE.locked,
+        // Must-include sites get a dashed white outline so they read as a planner's pin.
+        color: forced ? "#f4f4f5" : "#0e1014", weight: forced ? 2.5 : 2, dashArray: forced ? "3 2" : undefined,
+      }).bindTooltip(`<b>${name(j)}</b> · ${role === "new" ? (forced ? "Must-include" : "Recommended") : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
+        .addTo(role === "existing" ? existingLayer : newLayer);
+      if (role === "new") markers.set(j, m);
+      wireSite(m, j, role === "new");
+    } else {
+      const m = L.circleMarker(pos, {
+        radius: editable ? 4.5 : 2.5, color: "#0e1014", weight: editable ? 1 : 0, fillColor: "#94a3b8", fillOpacity: open ? 0.8 : 0.3,
+      }).bindTooltip(`${name(j)} · candidate<br>${cap(inst.siteKind[j])}`).addTo(candidateLayer);
+      wireSite(m, j, false);
     }
   }
 
-  const key = JSON.stringify(source);
-  if (fittedFor !== key) {
-    const ext = Math.sqrt(inst.nCells) * inst.cellSizeM;
-    campusBounds = L.latLngBounds([ll(0, 0), ll(ext, ext)]);
-    lockToCampus();
+  const key = sourceKey(source).replace(/^custom\d+$/, "custom");
+  if (fittedFor !== key || refitPending) {
+    viewBounds = instanceBounds(inst);
+    viewLoose = editable;
+    lockToData(refitPending);
     fittedFor = key;
+    refitPending = false;
   }
   drawSelection();
 }
@@ -243,6 +312,355 @@ function hoverSite(j: number | null) {
   markers.forEach((m, k) => m.setRadius(k === j ? MARKER_R + 3 : MARKER_R));
   if (j !== null) markers.get(j)?.bringToFront();
 }
+
+// ---------- custom data: commit, tools, editors ----------
+
+/**
+ * Apply an edit to the custom dataset: save it, rebuild the model instance under a new version and
+ * re-solve. Until the new answer arrives, the previous plan is carried over by site id.
+ */
+function commitCustom(opts: { refit?: boolean } = {}) {
+  if (!custom) return;
+  const prevChosen = new Set<string>();
+  if (isCustom() && state.solution) {
+    const prev = scenario(settings().source, settings().emsResponseS).inst;
+    state.solution.x.forEach((v, j) => { if (v && !prev.siteExisting[j] && prevIds[j]) prevChosen.add(prevIds[j]); });
+  }
+  saveDataset(custom);
+  customVer++;
+  const inst = datasetToInstance(custom);
+  setCustomInstance(inst, customVer);
+  prevIds = custom.sites.map((s) => s.id);
+  updateCustomUi();
+  if (opts.refit) refitPending = true;
+  if (isCustom()) {
+    const x = Uint8Array.from(custom.sites, (s) => (s.existing || s.mustInclude || prevChosen.has(s.id) ? 1 : 0));
+    state.solution = state.solution ? { ...state.solution, x, status: "updating" } : null;
+    if (state.selected !== null && state.selected >= custom.sites.length) state.selected = null;
+    render();
+    resolveSoon(400);
+  }
+}
+let prevIds: string[] = custom?.sites.map((s) => s.id) ?? [];
+
+function updateCustomUi() {
+  const radio = document.querySelector<HTMLInputElement>("input[name=dataset][value=custom]")!;
+  radio.disabled = !custom;
+  const on = isCustom();
+  ui.arrestsField.hidden = !on;
+  ui.copyBtn.hidden = on;
+  editControl.getContainer()?.classList.toggle("hidden", !on);
+  if (!on) setTool("select");
+  if (custom && on) {
+    ui.arrests.value = String(Number(custom.arrestsPerYear.toFixed(3)));
+    const d = custom.demand.length;
+    ui.datasetNote.textContent = `${esc(custom.name)} · ${custom.sites.length} sites · ${d ? `${d} demand points` : "uniform demand"}`;
+    // Budget can reach every candidate on bigger uploads.
+    ui.budget.max = String(Math.max(30, Math.min(200, custom.sites.length)));
+  } else {
+    ui.budget.max = "30";
+    if (Number(ui.budget.value) > 30) { ui.budget.value = "30"; ui.budgetOut.textContent = "30"; }
+    if (lead && datasetChoice() === "lead") {
+      const ks = lead.results.kCurve.map((r) => r.K);
+      ui.datasetNote.textContent = `Team campus · seed ${lead.source.seed} · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`;
+    } else if (!lead) {
+      ui.datasetNote.textContent = "Team export missing (run web/scripts/export_data.py): showing a placeholder campus";
+    }
+  }
+  ui.datasetSeg.hidden = !custom;
+  ui.budget.parentElement!.querySelector(".scale span:last-child")!.textContent = ui.budget.max;
+  paintRange(ui.budget);
+}
+
+function selectDataset(value: "lead" | "custom") {
+  const r = document.querySelector<HTMLInputElement>(`input[name=dataset][value=${value}]`)!;
+  r.disabled = false;
+  r.checked = true;
+  onSourceChange();
+}
+
+// Map tool: select (click to edit, drag to move), or click-to-add a site / demand point.
+type Tool = "select" | "site" | "demand";
+let tool: Tool = "select";
+const editControl = new L.Control({ position: "topleft" });
+editControl.onAdd = () => {
+  const div = L.DomUtil.create("div", "leaflet-bar edit-tools hidden");
+  const btn = (t: Tool, title: string, svg: string) =>
+    `<a href="#" role="button" data-tool="${t}" title="${title}" aria-label="${title}" aria-pressed="${t === tool}">${svg}</a>`;
+  div.innerHTML =
+    btn("select", "Select: click a marker to edit it, drag a site to move it", '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3l14 8-6 2-3 6z"/></svg>') +
+    btn("site", "Click to add a candidate AED site", '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="6"/><path d="M12 9v6M9 12h6"/></svg>') +
+    btn("demand", "Click to add a demand point", '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>');
+  L.DomEvent.disableClickPropagation(div);
+  div.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-tool]");
+    if (!a) return;
+    e.preventDefault();
+    setTool(a.dataset.tool as Tool);
+  });
+  return div;
+};
+editControl.addTo(map);
+const toolHint = L.DomUtil.create("div", "tool-hint", map.getContainer());
+toolHint.hidden = true;
+
+function setTool(t: Tool) {
+  tool = t;
+  editControl.getContainer()?.querySelectorAll("a[data-tool]").forEach((a) => {
+    const on = (a as HTMLElement).dataset.tool === t;
+    a.classList.toggle("on", on);
+    a.setAttribute("aria-pressed", String(on));
+  });
+  map.getContainer().classList.toggle("adding", t !== "select");
+  toolHint.hidden = t === "select";
+  toolHint.textContent = t === "site" ? "Click the map to add a candidate AED site · Esc to stop"
+    : t === "demand" ? "Click the map to add a demand point · Esc to stop" : "";
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tool !== "select") setTool("select"); });
+
+map.on("click", (e: L.LeafletMouseEvent) => {
+  if (!custom || !isCustom() || tool === "select") return;
+  const { lat, lng } = e.latlng;
+  if (tool === "site") {
+    custom.sites.push({ id: newId("s"), name: `Site ${custom.sites.length + 1}`, lat, lon: lng, kind: "other", existing: false, mustInclude: false });
+    commitCustom();
+    openSiteEditor(custom.sites.length - 1);
+  } else {
+    custom.demand.push({ id: newId("d"), name: `Point ${custom.demand.length + 1}`, lat, lon: lng, weight: 100 });
+    commitCustom();
+    openDemandEditor(custom.demand.length - 1);
+  }
+});
+
+// Drag a site marker to move it (custom data, select tool). A press without movement is a click.
+let dragJustEnded = false;
+function wireSite(m: L.CircleMarker, j: number, selectable: boolean) {
+  m.on("click", (e) => {
+    L.DomEvent.stop(e);
+    if (dragJustEnded) { dragJustEnded = false; return; }
+    if (isCustom()) openSiteEditor(j);
+    else if (selectable) selectSite(j, { scrollRow: true });
+  });
+  if (!isCustom()) return;
+  m.on("mousedown", (e: L.LeafletMouseEvent) => {
+    if (tool !== "select") return;
+    L.DomEvent.stop(e);
+    const start = e.containerPoint;
+    let moved = false;
+    map.dragging.disable();
+    const onMove = (ev: L.LeafletMouseEvent) => {
+      if (!moved && ev.containerPoint.distanceTo(start) < 4) return;
+      moved = true;
+      m.setLatLng(ev.latlng);
+    };
+    const onUp = () => {
+      map.off("mousemove", onMove);
+      map.off("mouseup", onUp);
+      document.removeEventListener("mouseup", onUp);
+      map.dragging.enable();
+      if (!moved || !custom) return;
+      dragJustEnded = true;
+      setTimeout(() => { dragJustEnded = false; }, 50);
+      const p = m.getLatLng();
+      Object.assign(custom.sites[j], { lat: p.lat, lon: p.lng });
+      editRing?.setLatLng(p);
+      commitCustom();
+    };
+    map.on("mousemove", onMove);
+    map.on("mouseup", onUp);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+// Editor popups pan into view (with room for the controls) instead of being clipped at the map edge.
+// The editor is a panel docked in the map corner (never clipped by the map edge), with a dashed ring
+// on the item being edited.
+const inspector = L.DomUtil.create("div", "inspector", map.getContainer());
+inspector.hidden = true;
+L.DomEvent.disableClickPropagation(inspector);
+L.DomEvent.disableScrollPropagation(inspector);
+let editRing: L.CircleMarker | null = null;
+
+function showInspector(content: HTMLElement, at: L.LatLngExpression) {
+  const close = Object.assign(document.createElement("button"), { type: "button", className: "icon-btn insp-close", ariaLabel: "Close editor" });
+  close.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+  close.addEventListener("click", hideInspector);
+  inspector.replaceChildren(close, content);
+  inspector.hidden = false;
+  editRing?.remove();
+  editRing = L.circleMarker(at, {
+    renderer: ringRenderer, pane: "selection", radius: 12, color: "#f4f4f5", weight: 2, dashArray: "4 3",
+    fill: false, interactive: false,
+  }).addTo(map);
+  // Bring the edited item into view if the panel or an edge hides it: shift the map so the item sits
+  // left of the panel.
+  const animate = !document.hidden && !reducedMotion.matches;
+  const pt = map.latLngToContainerPoint(at);
+  const box = inspector.getBoundingClientRect(), mapBox = map.getContainer().getBoundingClientRect();
+  const left = box.left - mapBox.left, top = box.top - mapBox.top;
+  const size = map.getSize();
+  if (pt.x > left - 30 && pt.y > top - 30) map.panBy([pt.x - Math.max(60, left - 60), 0], { animate });
+  else if (pt.x < 50 || pt.y < 50 || pt.x > size.x - 30 || pt.y > size.y - 30) map.panTo(at, { animate });
+  content.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+}
+
+function hideInspector() {
+  inspector.hidden = true;
+  inspector.replaceChildren();
+  editRing?.remove();
+  editRing = null;
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !inspector.hidden) hideInspector(); });
+
+/** Build a small form; values are set through the DOM, so user text is never parsed as HTML. */
+function formField(label: string, input: HTMLElement) {
+  const wrap = document.createElement("label");
+  wrap.className = "pop-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  wrap.append(span, input);
+  return wrap;
+}
+
+function openSiteEditor(j: number) {
+  if (!custom) return;
+  const s = custom.sites[j];
+  if (!s) return;
+  const el = document.createElement("form");
+  el.className = "pop-form";
+  el.addEventListener("submit", (e) => e.preventDefault());
+  const title = document.createElement("h4");
+  title.textContent = "Candidate site";
+  const name = Object.assign(document.createElement("input"), { value: s.name, maxLength: 80 });
+  const kind = document.createElement("select");
+  for (const k of KINDS) kind.add(new Option(cap(k), k, false, k === s.kind));
+  const check = (label: string, on: boolean) => {
+    const w = document.createElement("label");
+    w.className = "pop-check";
+    const c = Object.assign(document.createElement("input"), { type: "checkbox", checked: on });
+    w.append(c, document.createTextNode(label));
+    return { w, c };
+  };
+  const ex = check("Existing AED (already installed, free)", s.existing);
+  const must = check("Must include (always place, uses budget)", s.mustInclude);
+  const hours = document.createElement("p");
+  hours.className = "pop-note";
+  const del = Object.assign(document.createElement("button"), { type: "button", textContent: "Delete site", className: "btn ghost danger" });
+  const setHours = () => {
+    const open = ({ academic: "day + evening", dining: "day + evening", athletic: "day + evening" } as Record<string, string>)[kind.value] ?? "24/7";
+    hours.textContent = `Open ${open} · ${kind.value === "outdoor" ? "cost 1.5, no indoor delay" : "cost 1"}`;
+  };
+  setHours();
+  el.append(title, formField("Name", name), formField("Type", kind), ex.w, must.w, hours, del);
+
+  let t = 0;
+  const save = (immediate = false) => {
+    clearTimeout(t);
+    const run = () => {
+      Object.assign(s, { name: name.value.trim() || s.name, kind: kind.value, existing: ex.c.checked, mustInclude: must.c.checked && !ex.c.checked });
+      commitCustom();
+    };
+    if (immediate) run(); else t = window.setTimeout(run, 500);
+  };
+  name.addEventListener("input", () => save());
+  kind.addEventListener("change", () => { setHours(); save(true); });
+  ex.c.addEventListener("change", () => { if (ex.c.checked) must.c.checked = false; save(true); });
+  must.c.addEventListener("change", () => { if (must.c.checked) ex.c.checked = false; save(true); });
+  del.addEventListener("click", () => {
+    custom!.sites.splice(j, 1);
+    hideInspector();
+    commitCustom();
+  });
+  showInspector(el, [s.lat, s.lon]);
+}
+
+function openDemandEditor(i: number) {
+  if (!custom) return;
+  const el = document.createElement("form");
+  el.className = "pop-form";
+  el.addEventListener("submit", (e) => e.preventDefault());
+  const title = document.createElement("h4");
+  title.textContent = "Demand point";
+  const d = custom.demand[i];
+  if (!d) {
+    // Auto-generated uniform demand: not editable point by point.
+    const p = document.createElement("p");
+    p.className = "pop-note";
+    p.textContent = "This dataset has no demand points, so demand is spread evenly. Upload demand points or add one with the demand tool to replace it.";
+    el.append(title, p);
+    const inst = scenario(settings().source, settings().emsResponseS).inst;
+    const [lat, lon] = metresToLatLon(inst.cellXY[2 * i], inst.cellXY[2 * i + 1], inst.originLatLon);
+    showInspector(el, [lat, lon]);
+    return;
+  }
+  const name = Object.assign(document.createElement("input"), { value: d.name, maxLength: 80 });
+  const weight = Object.assign(document.createElement("input"), { type: "number", min: "0", step: "any", value: String(d.weight) });
+  const note = document.createElement("p");
+  note.className = "pop-note";
+  note.textContent = "Weight is relative: people present, footfall or risk. The total arrests per year is set in the sidebar.";
+  const del = Object.assign(document.createElement("button"), { type: "button", textContent: "Delete point", className: "btn ghost danger" });
+  el.append(title, formField("Name", name), formField("Weight", weight), note, del);
+  let t = 0;
+  const save = () => {
+    clearTimeout(t);
+    t = window.setTimeout(() => {
+      const w = Number(weight.value);
+      Object.assign(d, { name: name.value.trim() || d.name, weight: Number.isFinite(w) && w >= 0 ? w : d.weight });
+      delete d.periodWeights; // an edited weight uses the default day / evening / night split
+      commitCustom();
+    }, 500);
+  };
+  name.addEventListener("input", save);
+  weight.addEventListener("input", save);
+  del.addEventListener("click", () => {
+    custom!.demand.splice(i, 1);
+    hideInspector();
+    commitCustom();
+  });
+  showInspector(el, [d.lat, d.lon]);
+}
+
+// Upload, copy and clear.
+const upload = initUpload({
+  hasCustom: () => !!custom && (custom.sites.length > 0 || custom.demand.length > 0),
+  currentArrests: () => custom?.arrestsPerYear ?? 5,
+  onImport: (r: ImportResult) => {
+    const base: CustomDataset = custom ?? { name: r.fileName.replace(/\.[^.]+$/, ""), sites: [], demand: [], arrestsPerYear: r.arrestsPerYear };
+    if (r.role === "sites") base.sites = r.mode === "add" ? [...base.sites, ...r.sites] : r.sites;
+    else { base.demand = r.mode === "add" ? [...base.demand, ...r.demand] : r.demand; base.arrestsPerYear = r.arrestsPerYear; }
+    if (!custom) base.name = r.fileName.replace(/\.[^.]+$/, "");
+    custom = base;
+    commitCustom({ refit: true });
+    selectDataset("custom");
+  },
+});
+ui.uploadBtn.addEventListener("click", () => upload.open());
+ui.copyBtn.addEventListener("click", () => {
+  const s = settings();
+  const inst = scenario(s.source, s.emsResponseS).inst;
+  // Never replace the viewer's own data without asking.
+  if (custom && (custom.sites.length || custom.demand.length) &&
+      !confirm(`Replace your dataset "${custom.name}" (${custom.sites.length} sites) with a copy of this campus?`)) return;
+  custom = datasetFromInstance(inst, s.source.kind === "lead" ? "Copy of team campus" : "Copy of placeholder campus");
+  commitCustom({ refit: false });
+  selectDataset("custom");
+});
+ui.clearBtn.addEventListener("click", () => {
+  if (!custom || !confirm("Delete the custom dataset from this browser? This cannot be undone.")) return;
+  custom = null;
+  saveDataset(null);
+  hideInspector();
+  selectDataset("lead");
+  updateCustomUi();
+});
+ui.arrests.addEventListener("input", () => {
+  const v = Number(ui.arrests.value);
+  if (!custom || !Number.isFinite(v) || v < 0) return;
+  custom.arrestsPerYear = v;
+  clearTimeout(arrestsT);
+  arrestsT = window.setTimeout(() => commitCustom(), 400);
+});
+let arrestsT = 0;
 
 // ---------- panels ----------
 const ICONS = {
@@ -314,7 +732,7 @@ function drawTable() {
   const body = rows.map((r) => {
     const sel = r.j === state.selected;
     return `<tr data-site="${r.j}" tabindex="0" class="${sel ? "selected" : ""}" aria-selected="${sel}">` +
-      `<td class="site-id">${r.j}</td>` +
+      (inst.siteName ? `<td class="site-name" title="Site #${r.j}">${esc(inst.siteName[r.j])}</td>` : `<td class="site-id">${r.j}</td>`) +
       `<td><span class="kind"><i style="background:${KIND_COLOURS[r.kind] ?? "#a3a3a3"}"></i>${r.kind}</span></td>` +
       `<td>${availBadges(r.open, inst.periods)}</td>` +
       (freq ? `<td class="freq${r.freq >= 0.5 ? " strong" : ""}" title="Chosen in ${(r.freq * 100).toFixed(1)}% of the lead's Monte Carlo scenarios">${Math.round(r.freq * 100)}%</td>` : "") +
@@ -367,10 +785,11 @@ function drawPanels() {
   const lives = evaluate(cov, x);
   const existing = evaluate(cov, cov.siteExisting);
   const byPeriod = evaluateByPeriod(cov, x);
-  let nNew = 0, nExisting = 0, locked = 0;
+  let nNew = 0, nExisting = 0, locked = 0, nForced = 0;
   for (let j = 0; j < inst.nSites; j++) {
     if (!x[j]) continue;
     if (inst.siteExisting[j]) nExisting++; else nNew++;
+    if (inst.siteForced?.[j]) nForced++;
     if (!inst.siteOpen[j * P + q]) locked++;
   }
   const periodName = cap(inst.periods[q]);
@@ -384,10 +803,11 @@ function drawPanels() {
   // Greedy is not a choice in the app; the team's precomputed gap says what optimizing buys.
   const solveNote = !sol ? "HiGHS ILP"
     : leadRow ? `Team ILP · ${leadRow.gap_pct > 0.05 ? `greedy is ${leadRow.gap_pct.toFixed(1)}% short` : "greedy ties"}`
+    : sol.status === "updating" ? "Re-optimizing after your edit…"
     : `HiGHS ILP in browser · ${sol.status}`;
   ui.metrics.innerHTML =
     metric("heart", "Lives saved / yr", lives.toFixed(3), livesNote, gain > 0 ? "up" : "") +
-    metric("pin", "AEDs placed", `${nNew}<small>new</small>`, `plus ${nExisting} existing`) +
+    metric("pin", "AEDs placed", `${nNew}<small>new</small>`, `plus ${nExisting} existing${nForced ? ` · ${nForced} must-include` : ""}`) +
     metric("clock", `${periodName} lives / yr`, byPeriod[q].toFixed(3),
       locked ? `${locked} AED${locked === 1 ? "" : "s"} locked this period` : "All AEDs open this period", locked ? "warn" : "") +
     metric("bolt", "Solve time", sol ? `${sol.runtimeS.toFixed(2)}<small>s</small>` : "—", solveNote);
@@ -430,7 +850,8 @@ function runIlp(id: number, s: ReturnType<typeof settings>): Promise<IlpReply> {
     };
     inflight = { id, cancel: () => { w.removeEventListener("message", onMsg); resolve({ id, error: "cancelled" }); } };
     w.addEventListener("message", onMsg);
-    w.postMessage({ id, source: s.source, emsResponseS: s.emsResponseS, budget: s.budget } satisfies IlpRequest);
+    const customInst = s.source.kind === "custom" ? scenario(s.source, s.emsResponseS).inst : undefined;
+    w.postMessage({ id, source: s.source, emsResponseS: s.emsResponseS, budget: s.budget, custom: customInst } satisfies IlpRequest);
   });
 }
 
@@ -529,22 +950,20 @@ ui.periods.addEventListener("click", (e) => {
 });
 
 let debounce = 0;
-const resolveSoon = () => { clearTimeout(debounce); debounce = window.setTimeout(solve, 150); };
+const resolveSoon = (ms = 150) => { clearTimeout(debounce); debounce = window.setTimeout(solve, ms); };
 ui.budget.addEventListener("input", () => { ui.budgetOut.textContent = ui.budget.value; paintRange(ui.budget); resolveSoon(); });
 ui.ems.addEventListener("input", () => { ui.emsOut.textContent = `${Number(ui.ems.value).toFixed(1)} min`; paintRange(ui.ems); resolveSoon(); });
 paintRange(ui.budget);
 paintRange(ui.ems);
 function onSourceChange() {
-  const synthetic = settings().source.kind === "synthetic";
-  ui.seedField.hidden = !synthetic;
   state.solution = null;
   state.selected = null;
+  hideInspector();
+  updateCustomUi();
   render();
   solve();
 }
-ui.seed.addEventListener("change", onSourceChange);
 document.querySelectorAll("input[name=dataset]").forEach((el) => el.addEventListener("change", onSourceChange));
-ui.candidates.addEventListener("change", drawMap);
 let chartW = 0;
 new ResizeObserver(([e]) => {
   const w = Math.round(e.contentRect.width);
@@ -560,17 +979,19 @@ ui.kcurve.addEventListener("pick", (e) => {
   lead = await loadLead();
   if (lead) {
     setLeadInstance(leadInstance(lead));
-    const ks = lead.results.kCurve.map((r) => r.K);
-    ui.datasetNote.textContent = `seed ${lead.source.seed} · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`;
-  } else {
-    // No export yet: fall back to the TypeScript generator and say how to produce the lead's data.
-    const leadRadio = document.querySelector<HTMLInputElement>("input[name=dataset][value=lead]")!;
-    leadRadio.disabled = true;
-    document.querySelector<HTMLInputElement>("input[name=dataset][value=synthetic]")!.checked = true;
-    ui.datasetNote.textContent = "Lead export missing: run web/scripts/export_data.py";
   }
-  ui.seedField.hidden = settings().source.kind !== "synthetic";
+  if (custom) {
+    // A dataset saved in this browser from an earlier visit.
+    setCustomInstance(datasetToInstance(custom), customVer);
+    prevIds = custom.sites.map((st) => st.id);
+  }
+  updateCustomUi();
   buildPeriodButtons();
   render();
   solve();
 })();
+
+// Development-only test hook (stripped from production builds): lets automated checks drive the editor.
+if (import.meta.env.DEV) {
+  (window as unknown as { __aed: unknown }).__aed = { openSiteEditor, openDemandEditor, getCustom: () => custom };
+}
