@@ -485,3 +485,10 @@ dialog#uploadDialog::backdrop { background: rgb(32 33 36 / 0.45); }
   .map-grid { grid-template-columns: 1fr; }
   .legend-body { width: 180px; }
 }
+
+/* Time-of-day icon chips and opening-hours icons */
+.chips button.icon-chip { width: 52px; padding: 0; justify-content: center; }
+.chips button.icon-chip::before { display: none; }
+.chips button.icon-chip.on { color: var(--accent-ink); }
+.avail span { width: 22px; height: 22px; }
+.avail span svg { display: block; }

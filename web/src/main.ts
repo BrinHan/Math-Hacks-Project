@@ -34,6 +34,16 @@ const KIND_COLOURS: Record<string, string> = {
   athletic: "#b8a37a", dining: "#b8917a", outdoor: "#a3a3a3",
 };
 const PERIOD_NAMES: Record<string, string> = { day: "Day", evening: "Evening", night: "Night" };
+const PERIOD_HOURS_TEXT: Record<string, string> = { day: "8am–6pm", evening: "6pm–midnight", night: "midnight–8am" };
+const svg = (d: string, size = 18) =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+// Sun, sun on the horizon (dusk), crescent moon.
+const PERIOD_ICON_PATHS: Record<string, string> = {
+  day: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  evening: '<path d="M7 18a5 5 0 0 1 10 0"/><path d="M2 18h20M12 6v3M4.6 10.6l1.6 1.6M19.4 10.6l-1.6 1.6M6 22h12"/>',
+  night: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+};
+const periodIcon = (p: string, size?: number) => svg(PERIOD_ICON_PATHS[p] ?? PERIOD_ICON_PATHS.day, size);
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const ui = {
@@ -61,7 +71,7 @@ const ui = {
   tornado: $("tornado"),
 };
 
-type SortKey = "site" | "kind" | "open" | "freq" | "lat";
+type SortKey = "site" | "open" | "freq";
 const state = {
   period: 0,
   solution: null as Solution | null,
@@ -103,7 +113,19 @@ map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 L.control.zoom({ position: "bottomright" }).addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
 // control's on/off state persists.
-const heatLayer = L.layerGroup().addTo(map);       // cells / demand coloured by time to the nearest AED
+const heatLayer = L.layerGroup().addTo(map);       // reach zones around open AEDs
+// One pane per band, outermost lowest; pane opacity gives a clean union of overlapping rings.
+const ZONE_COLOURS = ["#1a9850", "#91cf60", "#fee08b", "#fc8d59"]; // ≤2, 2–4, 4–6 min, 6 min – ambulance
+const ZONE_OPACITY = [0.42, 0.34, 0.3, 0.24];
+const zoneRenderers = ZONE_COLOURS.map((_, b) => {
+  const name = `zone${b}`;
+  map.createPane(name);
+  const pane = map.getPane(name)!;
+  pane.style.zIndex = String(380 - b);
+  pane.style.opacity = String(ZONE_OPACITY[b]);
+  pane.style.pointerEvents = "none";
+  return L.canvas({ pane: name, padding: 0.5 });
+});
 const demandLayer = L.layerGroup();                // raw demand points
 const candidateLayer = L.layerGroup();             // candidate sites without an AED
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
@@ -111,7 +133,7 @@ const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recomme
 const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
 // Google-style "Layers" button (bottom left) with a popover of toggles.
 const LAYERS: [string, L.LayerGroup][] = [
-  ["Time-to-AED heatmap", heatLayer],
+  ["AED reach zones", heatLayer],
   ["Recommended AEDs", newLayer],
   ["Existing AEDs", existingLayer],
   ["Candidate AED sites", candidateLayer],
@@ -218,9 +240,9 @@ legend.onAdd = () => {
     `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #fff,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
   div.innerHTML =
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
-    `<div class="legend-body"><h3>Fastest AED</h3><ul>` +
-    BANDS.map((b) => item(b.colour, b.label)).join("") + item(UNREACHED, "After ambulance") +
-    `</ul><p class="note">Stronger tint = more arrests</p><hr />` +
+    `<div class="legend-body"><h3>AED reached and back within</h3><ul>` +
+    BANDS.map((b, k) => item(b.colour, k === BANDS.length - 1 ? "6 min – before ambulance" : b.label)).join("") +
+    `</ul><p class="note">Outside the rings the ambulance gets there first.</p><hr />` +
     `<h3>AEDs</h3><ul>` +
     item(SITE.existing, "Existing", true) + item(SITE.new, "New", true) + item(SITE.locked, "Locked this period", true) +
     `</ul></div>`;
@@ -263,30 +285,27 @@ function drawMap() {
   }
   markers.clear();
 
-  let maxRate = 0;
-  for (let i = 0; i < inst.nCells; i++) maxRate = Math.max(maxRate, inst.cellRate[i * P + q]);
-  const half = inst.cellSizeM / 2;
+  // Reach zones: for every AED that is open now, rings in real metres showing how far a bystander can
+  // fetch it and get back within 2 / 4 / 6 minutes and before the ambulance. Geographic circles grow
+  // with the map as you zoom in. Each band has its own semi-transparent pane, so overlapping rings of
+  // the same band merge into one shape instead of stacking darker.
+  const { params } = scenario(source, emsResponseS);
+  const perMetre = (2 * params.detourFactor) / params.walkSpeedMps; // seconds per metre of distance
+  const edges = [...BANDS.map((b) => Math.min(b.edge, emsResponseS)), emsResponseS];
+  for (let j = 0; j < J; j++) {
+    if (!x[j] || !inst.siteOpen[j * P + q]) continue;
+    const pos = ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1]);
+    const slack = params.dispatchDelayS + inst.siteFloorDelay[j];
+    for (let b = ZONE_COLOURS.length - 1; b >= 0; b--) {
+      const radius = Math.min(params.maxTauS, edges[b]) > slack ? (Math.min(params.maxTauS, edges[b]) - slack) / perMetre : 0;
+      if (radius <= 0) continue;
+      L.circle(pos, { radius, renderer: zoneRenderers[b], stroke: false, fillColor: ZONE_COLOURS[b], fillOpacity: 1, interactive: false })
+        .addTo(heatLayer);
+    }
+  }
   for (let i = 0; i < inst.nCells; i++) {
-    let t = Infinity;
-    for (let j = 0; j < J; j++) {
-      if (x[j] && inst.siteOpen[j * P + q]) t = Math.min(t, tau[i * J + j]);
-    }
-    const rate = inst.cellRate[i * P + q];
-    const share = maxRate > 0 ? rate / maxRate : 0;
-    const cx = inst.cellXY[2 * i], cy = inst.cellXY[2 * i + 1];
-    const tip = `${Number.isFinite(t) ? `<b>${(t / 60).toFixed(1)} min</b> to nearest AED` : "No AED in reach"}<br>${rate.toFixed(4)} arrests / yr`;
-    if (half > 0) {
-      L.rectangle([ll(cx - half, cy - half), ll(cx + half, cy + half)], {
-        stroke: false, fillColor: bandColour(t, emsResponseS), fillOpacity: 0.18 + 0.5 * share,
-      }).bindTooltip(tip).addTo(heatLayer);
-    } else {
-      // Point demand (custom data): a soft disc per point, larger where more arrests are expected.
-      L.circleMarker(ll(cx, cy), {
-        radius: 6 + 10 * Math.sqrt(share), stroke: false, fillColor: bandColour(t, emsResponseS), fillOpacity: 0.25 + 0.4 * share,
-      }).bindTooltip(tip).addTo(heatLayer);
-    }
-    const dot = L.circleMarker(ll(cx, cy), { radius: editable ? 3.5 : 2.5, color: "#ffffff", weight: editable ? 1 : 0, fillColor: "#5f6368", fillOpacity: 0.85 })
-      .bindTooltip(`Demand point<br>${rate.toFixed(4)} arrests / yr`).addTo(demandLayer);
+    const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: "#ffffff", weight: editable ? 1 : 0, fillColor: "#5f6368", fillOpacity: 0.85 })
+      .bindTooltip("Demand point").addTo(demandLayer);
     if (editable) dot.on("click", (e) => { L.DomEvent.stop(e); openDemandEditor(i); });
   }
 
@@ -728,19 +747,16 @@ let arrestsT = 0;
 
 // ---------- panels ----------
 function availBadges(open: boolean[], periods: string[]) {
-  const names = periods.map((p) => PERIOD_NAMES[p] ?? cap(p));
-  const title = names.map((n, p) => `${n}: ${open[p] ? "open" : "locked"}`).join(" · ");
+  const title = periods.map((p, k) => `${PERIOD_NAMES[p] ?? cap(p)}: ${open[k] ? "open" : "locked"}`).join(" · ");
   return `<span class="avail" title="${title}" aria-label="${title}">` +
-    names.map((n, p) => `<span class="${open[p] ? "on" : ""}">${n[0]}</span>`).join("") + "</span>";
+    periods.map((p, k) => `<span class="${open[k] ? "on" : ""}">${periodIcon(p, 13)}</span>`).join("") + "</span>";
 }
 
 const COLUMNS: { key: SortKey; label: string; cls?: string; title?: string; leadOnly?: boolean }[] = [
   { key: "site", label: "Site" },
-  { key: "kind", label: "Type" },
   { key: "open", label: "Open" },
   { key: "freq", label: "Freq", cls: "right", leadOnly: true,
     title: "Share of the lead's Monte Carlo scenarios (K = 10) whose re-optimized plan uses this site" },
-  { key: "lat", label: "Lat/Lon", cls: "right" },
 ];
 
 function drawTable() {
@@ -753,19 +769,19 @@ function drawTable() {
   const cols = COLUMNS.filter((c) => !c.leadOnly || freq);
   if (!cols.some((c) => c.key === state.sort.key)) state.sort = { key: "site", dir: 1 };
 
-  type Row = { j: number; kind: string; open: boolean[]; nOpen: number; freq: number; lat: number; lon: number };
+  type Row = { j: number; name: string; open: boolean[]; nOpen: number; freq: number };
   const rows: Row[] = [];
   for (let j = 0; j < inst.nSites; j++) {
     if (!x[j] || inst.siteExisting[j]) continue;
-    const [lat, lon] = metresToLatLon(inst.siteXY[2 * j], inst.siteXY[2 * j + 1], inst.originLatLon);
     const open = inst.periods.map((_, p) => inst.siteOpen[j * P + p] === 1);
-    rows.push({ j, kind: inst.siteKind[j], open, nOpen: open.filter(Boolean).length, freq: freq?.get(j) ?? 0, lat, lon });
+    rows.push({ j, name: inst.siteName?.[j] ?? "", open, nOpen: open.filter(Boolean).length, freq: freq?.get(j) ?? 0 });
   }
   if (state.selected !== null && !rows.some((r) => r.j === state.selected)) state.selected = null;
 
   const { key, dir } = state.sort;
   const by: Record<SortKey, (r: Row) => number | string> = {
-    site: (r) => r.j, kind: (r) => r.kind, open: (r) => r.nOpen, freq: (r) => r.freq, lat: (r) => r.lat,
+    // Named datasets sort by name; the team campus only has numbers.
+    site: (r) => (inst.siteName ? r.name.toLowerCase() : r.j), open: (r) => r.nOpen, freq: (r) => r.freq,
   };
   rows.sort((a, b) => {
     const va = by[key](a), vb = by[key](b);
@@ -783,10 +799,9 @@ function drawTable() {
     const sel = r.j === state.selected;
     return `<tr data-site="${r.j}" tabindex="0" class="${sel ? "selected" : ""}" aria-selected="${sel}">` +
       (inst.siteName ? `<td class="site-name" title="Site #${r.j}">${esc(inst.siteName[r.j])}</td>` : `<td class="site-id">${r.j}</td>`) +
-      `<td><span class="kind"><i style="background:${KIND_COLOURS[r.kind] ?? "#a3a3a3"}"></i>${r.kind}</span></td>` +
       `<td>${availBadges(r.open, inst.periods)}</td>` +
       (freq ? `<td class="freq${r.freq >= 0.5 ? " strong" : ""}" title="Chosen in ${(r.freq * 100).toFixed(1)}% of the lead's Monte Carlo scenarios">${Math.round(r.freq * 100)}%</td>` : "") +
-      `<td class="coords" title="${r.lat.toFixed(6)}, ${r.lon.toFixed(6)}"><span>${r.lat.toFixed(3)}</span><span>${r.lon.toFixed(3)}</span></td></tr>`;
+      "</tr>";
   }).join("");
 
   ui.siteCount.textContent = rows.length ? `${rows.length} site${rows.length === 1 ? "" : "s"}` : "";
@@ -979,7 +994,7 @@ sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
 function buildPeriodButtons() {
   const { inst } = scenario(settings().source, settings().emsResponseS);
   ui.periods.innerHTML = inst.periods.map((p, q) =>
-    `<button type="button" data-q="${q}" class="${q === state.period ? "on" : ""}" aria-pressed="${q === state.period}">${PERIOD_NAMES[p] ?? cap(p)}</button>`).join("");
+    `<button type="button" data-q="${q}" class="icon-chip ${q === state.period ? "on" : ""}" aria-pressed="${q === state.period}" aria-label="${PERIOD_NAMES[p] ?? cap(p)}" title="${PERIOD_NAMES[p] ?? cap(p)} · ${PERIOD_HOURS_TEXT[p] ?? ""}">${periodIcon(p)}</button>`).join("");
 }
 
 /** Fill the range track up to the thumb (WebKit has no ::range-progress). */
