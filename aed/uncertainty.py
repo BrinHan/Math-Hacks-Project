@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from aed.coverage import Coverage, build_coverage
-from aed.data.synthetic import generate_instance
+from aed.pipeline import make_instance
 from aed.instance import Instance
 from aed.params import RANGES, Params
 from aed.solvers.common import evaluate
@@ -17,6 +17,7 @@ from aed.solvers.ilp import solve_ilp
 from aed.travel import travel_time_matrix
 
 GEN_KWARGS: dict = {}       # passed to generate_instance; tests shrink the campus here
+CAMPUS = "synthetic"        # "york" runs everything on the Keele campus
 DEMAND_SCALE = (0.7, 1.3)   # ASSUMPTION: +-30% uncertainty in campus foot traffic
 LOCKOUT_FLIP_FRAC = 0.10    # ASSUMPTION: 10% of opening schedules are wrong
 
@@ -64,7 +65,7 @@ def sample_scenario(inst: Instance, base: Params, rng: np.random.Generator) -> t
 
 def _base(seed: int, base: Params | None) -> tuple[Instance, Params]:
     base = base or Params()
-    return generate_instance(seed=seed, params=base, **GEN_KWARGS), base
+    return make_instance(seed, base, CAMPUS, **GEN_KWARGS), base
 
 
 def monte_carlo(seed: int, budget: float, n: int = 500, rng_seed: int = 0,

@@ -26,8 +26,9 @@ HEADER = ["K", "ilp_lives", "greedy_lives", "swap_lives", "pop_lives", "existing
           "gap_pct", "ilp_time_s"]
 
 
-def main(seed: int = 0, kmax: int = 30, out="results", verbose: bool = True, **gen_kwargs) -> Path:
-    inst, cov = build(seed=seed, **gen_kwargs)
+def main(seed: int = 0, kmax: int = 30, out="results", verbose: bool = True, campus: str = "synthetic",
+         **gen_kwargs) -> Path:
+    inst, cov = build(seed=seed, campus=campus, **gen_kwargs)
     existing = evaluate(cov, cov.site_existing)
     rows, placements = [], {}
     for K in range(kmax + 1):
@@ -59,5 +60,6 @@ if __name__ == "__main__":
     ap.add_argument("--kmax", type=int, default=30)
     ap.add_argument("--out", default="results")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--campus", choices=["york", "synthetic"], default="york")
     a = ap.parse_args()
-    main(seed=a.seed, kmax=a.kmax, out=a.out, verbose=not a.quiet)
+    main(seed=a.seed, kmax=a.kmax, out=a.out, verbose=not a.quiet, campus=a.campus)

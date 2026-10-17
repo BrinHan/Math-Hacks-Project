@@ -13,6 +13,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aed.instance import metres_to_latlon  # noqa: E402
+from aed import uncertainty as unc  # noqa: E402
 from aed.uncertainty import _base, monte_carlo, monte_carlo_curve, oat_sensitivity  # noqa: E402
 
 BUDGETS = list(range(0, 31, 5))
@@ -27,7 +28,8 @@ def _write(path: Path, header: list[str], rows: list[list]) -> None:
     print(f"wrote {path}")
 
 
-def main(seed: int = 0, n: int = 200, out="results", rng_seed: int = 0) -> None:
+def main(seed: int = 0, n: int = 200, out="results", rng_seed: int = 0, campus: str = "synthetic") -> None:
+    unc.CAMPUS = campus
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
@@ -61,5 +63,6 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--out", default="results")
+    ap.add_argument("--campus", choices=["york", "synthetic"], default="york")
     a = ap.parse_args()
-    main(seed=a.seed, n=a.n, out=a.out)
+    main(seed=a.seed, n=a.n, out=a.out, campus=a.campus)
