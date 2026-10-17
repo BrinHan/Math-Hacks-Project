@@ -10,10 +10,15 @@ The campus is a grid of cells i. Over a day there are three periods p (day 10 h,
 evening 6 h, night 8 h). Expected public cardiac arrests per year in cell i during p:
 
 ```
-rate_ip = people_ip * incidence / 100,000 * public_fraction * hours_p / 24
+rate_ip = people_ip * incidence / 100,000 * (public_fraction / away_time_share) * hours_p / 24
 ```
 
-Only public arrests count: an arrest at home is rarely reachable from a public AED.
+`people_ip` already counts only people present on campus, so they are in public. 17.8% of
+arrests happen in public while people spend 31.3% of their time away from home (Klepeis
+2001), so a person in public has about 0.57 times the average arrest hazard (younger and
+healthier people are the ones out). Arrests at home are excluded, with one stated
+exception: residents of residential halls are counted (assumption 11) and given the same
+public hazard ratio, although their at-home hazard would be about 2x higher.
 
 ## Time to defibrillation
 
@@ -25,11 +30,16 @@ tau_ij = dispatch_delay + 2 * detour * distance_ij / walk_speed + floor_delay_j
 
 Distance is straight-line times a detour factor until real walking paths (OSMnx) are added.
 
+The synthetic campus places 30 buildings of five kinds (academic core, residential ring,
+athletic fields) whose occupancy changes by period; see `docs/assumptions.md`.
+
 ## Survival and the ambulance baseline
 
 Survival if shocked t minutes after collapse: `S(t) = S0 * exp(-k t)`. Without a nearby
 AED the patient waits for the ambulance, so the benefit of an AED arriving within band
-T_k is `b_k = max(0, S(T_k) - S(T_ems))`. Bands slower than the ambulance are worth 0.
+T_k is `b_k = f * max(0, S(T_k) - S(T_ems))`, where `f` is the shockable fraction: an AED only
+helps arrests with a shockable rhythm (VF/pVT; 0.265 = all public arrests, Fordyce 2017;
+range 0.20-0.38, Weisfeldt 2011). Bands slower than the ambulance are worth 0.
 
 ## Optimisation (gradual-cover maximal covering)
 
@@ -54,7 +64,8 @@ keeps the solver fast: about 13,700 rows solve in a few seconds.
   submodular, so with equal costs greedy reaches at least 63% (1 - 1/e) of optimal.
 - **Swap (Teitz-Bart)** starts from greedy and exchanges one chosen site for one unchosen
   site while that improves the objective.
-- **Population-only** ranks sites by people nearby, ignoring lockout and survival.
+- **Population-only** ranks sites by the arrest rate within a 3-minute one-way walk
+  (about 194 m), ignoring opening hours and survival, and takes the top sites that fit.
 
 ## Uncertainty
 
@@ -69,3 +80,12 @@ One-at-a-time sensitivity moves each parameter to its low and high value (tornad
 - Greedy stays above the 63% bound, and swap lands between greedy and the ILP.
 - The optimality gap of greedy vs the ILP is reported for every K.
 - Numbers are always expected lives per year with an interval, never exact.
+
+### Reading the sensitivity results
+
+- `incidence_per_100k_yr`, `public_fraction` and `shockable_fraction` only rescale the
+  objective: they change lives saved but never which sites are chosen.
+- Lives saved *rise* with the decay rate `k` over its range. Faster decay hurts the
+  ambulance baseline more than a nearby AED, so the gap an AED closes grows (the benefit
+  peaks near k = 0.17/min). The range for `k` (0.03-0.12) is centred below the no-CPR
+  base of 0.10, so the Monte Carlo mean sits slightly below the base case.

@@ -18,3 +18,9 @@ def test_param_table_complete():
     assert set(rows) == set(Params.__dataclass_fields__)
     for name, (lo, hi) in RANGES.items():
         assert (rows[name]["low"], rows[name]["high"]) == (lo, hi)
+
+
+@pytest.mark.parametrize("f", [1.5, -0.1, float("nan")])
+def test_shockable_fraction_validated(f):
+    with pytest.raises(ValueError):
+        Params(shockable_fraction=f)

@@ -15,11 +15,13 @@ def survival(t_s: float | np.ndarray, params: Params) -> np.ndarray:
 
 
 def band_benefits(params: Params) -> tuple[np.ndarray, np.ndarray]:
-    """(edges_s, b): b_k = max(0, S(T_k) - S(ems_response)), bands with b_k = 0 dropped.
+    """(edges_s, b): b_k = f * max(0, S(T_k) - S(ems_response)), bands with b_k = 0 dropped.
 
+    f = shockable_fraction: an AED only helps arrests with a shockable rhythm (VF/pVT).
     b is non-increasing in k because S is non-increasing in t.
     """
     edges = np.asarray(params.band_edges_s, dtype=float)
-    b = np.maximum(0.0, survival(edges, params) - survival(params.ems_response_s, params))
+    gain = survival(edges, params) - survival(params.ems_response_s, params)
+    b = params.shockable_fraction * np.maximum(0.0, gain)
     keep = b > 0
     return edges[keep], b[keep]
