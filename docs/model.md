@@ -14,3 +14,13 @@ rate_ip = people_ip * incidence / 100,000 * public_fraction * hours_p / 24
 ```
 
 Only public arrests count: an arrest at home is rarely reachable from a public AED.
+
+## Time to defibrillation
+
+A bystander sets off after a dispatch delay, walks to the AED, and brings it back:
+
+```
+tau_ij = dispatch_delay + 2 * detour * distance_ij / walk_speed + floor_delay_j
+```
+
+Distance is straight-line times a detour factor until real walking paths (OSMnx) are added.
