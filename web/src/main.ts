@@ -40,7 +40,6 @@ const ui = {
   ems: $<HTMLInputElement>("ems"),
   emsOut: $<HTMLOutputElement>("emsOut"),
   periods: $("periods"),
-  metrics: $("metrics"),
   uploadBtn: $<HTMLButtonElement>("uploadBtn"),
   copyBtn: $<HTMLButtonElement>("copyBtn"),
   clearBtn: $<HTMLButtonElement>("clearBtn"),
@@ -684,19 +683,6 @@ ui.arrests.addEventListener("input", () => {
 let arrestsT = 0;
 
 // ---------- panels ----------
-const ICONS = {
-  heart: '<path d="M12 20s-7-4.3-9-8.6C1.7 8.4 3.6 5 6.8 5c1.9 0 3.3 1 4.2 2.2h2C13.9 6 15.3 5 17.2 5c3.2 0 5.1 3.4 3.8 6.4C19 15.7 12 20 12 20z"/>',
-  pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 1 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
-  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
-};
-const icon = (name: keyof typeof ICONS) =>
-  `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
-
-function metric(ic: keyof typeof ICONS, label: string, value: string, note: string, tone = "") {
-  return `<div class="metric"><div class="label">${icon(ic)}${label}</div><div class="value">${value}</div>` +
-    `<div class="note ${tone}" title="${note}">${note}</div></div>`;
-}
-
 function availBadges(open: boolean[], periods: string[]) {
   const names = periods.map((p) => PERIOD_NAMES[p] ?? cap(p));
   const title = names.map((n, p) => `${n}: ${open[p] ? "open" : "locked"}`).join(" · ");
@@ -802,30 +788,7 @@ function drawPanels() {
   const sol = state.solution;
   const x = sol?.x ?? inst.siteExisting;
   const P = inst.periods.length, q = state.period;
-  const lives = evaluate(cov, x);
-  const existing = evaluate(cov, cov.siteExisting);
   const byPeriod = evaluateByPeriod(cov, x);
-  let nNew = 0, nExisting = 0, locked = 0, nForced = 0;
-  for (let j = 0; j < inst.nSites; j++) {
-    if (!x[j]) continue;
-    if (inst.siteExisting[j]) nExisting++; else nNew++;
-    if (inst.siteForced?.[j]) nForced++;
-    if (!inst.siteOpen[j * P + q]) locked++;
-  }
-  const periodName = cap(inst.periods[q]);
-
-  const gain = lives - existing;
-  // When showing the lead's own placement, check our evaluate() reproduces their k_curve.csv number.
-  const leadRow = sol?.status === "lead" ? lead?.results.kCurve.find((r) => r.K === settings().budget) : undefined;
-  const livesNote = leadRow
-    ? `${signed(gain)} vs existing · ${Math.abs(leadRow.ilp_lives - lives) < 5e-6 ? "matches" : "differs from"} lead's ${leadRow.ilp_lives.toFixed(3)}`
-    : sol?.status === "updating" ? `${signed(gain)} vs existing · updating after your edit…`
-    : `${signed(gain)} vs existing AEDs only`;
-  ui.metrics.innerHTML =
-    metric("heart", "Lives saved / yr", lives.toFixed(3), livesNote, gain > 0 ? "up" : "") +
-    metric("pin", "AEDs placed", `${nNew}<small>new</small>`, `plus ${nExisting} existing${nForced ? ` · ${nForced} must-include` : ""}`) +
-    metric("clock", `${periodName} lives / yr`, byPeriod[q].toFixed(3),
-      locked ? `${locked} AED${locked === 1 ? "" : "s"} locked this period` : "All AEDs open this period", locked ? "warn" : "");
 
   const maxP = Math.max(...byPeriod, 1e-12);
   ui.bars.innerHTML = byPeriod.map((v, p) =>

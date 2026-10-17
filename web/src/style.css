@@ -170,7 +170,7 @@ main {
   min-width: 0; min-height: 100vh;
   padding: var(--gap);
   display: grid;
-  grid-template-rows: auto minmax(560px, 1fr) auto auto;
+  grid-template-rows: minmax(560px, 1fr) auto auto;
   align-content: start;
   gap: var(--gap);
 }
@@ -434,7 +434,7 @@ table.params td:last-child { color: var(--text-3); }
 @media (max-width: 860px) {
   body { grid-template-columns: 1fr; }
   #controls { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-  main { padding: 12px; grid-template-rows: auto auto auto auto; }
+  main { padding: 12px; grid-template-rows: none; }
   .mapcard { min-height: 440px; }
 }
 @media (max-width: 600px) {
