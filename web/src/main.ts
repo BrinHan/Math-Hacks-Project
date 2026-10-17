@@ -10,6 +10,7 @@ import type { Solution } from "./model/solvers";
 import { LeadData, leadInstance, loadLead, loadPhotos, loadYork, Photo, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
 import { RAMP_CSS, Zone, ZoneLayer } from "./zones";
+import { OutlineLayer } from "./outline";
 import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
 import {
@@ -152,8 +153,13 @@ const demandLayer = L.layerGroup();                // raw demand points
 const candidateLayer = L.layerGroup();             // candidate sites without an AED
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
-const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
-const campusLayer = L.layerGroup().addTo(map);     // campus boundary: the area AEDs are planned for
+// Outlines repaint every frame, so they stay crisp while the map glides (vector canvas layers were
+// stretched mid-animation and snapped back afterwards).
+const buildingLayer = new OutlineLayer({ stroke: "#8a8a8a", width: 1, alpha: 0.7, fill: "#ededed", fillAlpha: 0.05 }).addTo(map);
+const campusLayer = new OutlineLayer({
+  stroke: "#f5f5f5", width: 2.5, alpha: 0.95, dash: [10, 7],
+  halo: { stroke: "#000000", width: 6, alpha: 0.35 },
+}).addTo(map); // campus boundary: the area AEDs are planned for
 // "Map details": layer toggles shown in a popover from the pill bar, like the other settings.
 const LAYERS: [string, L.Layer][] = [
   ["AED reach zones", heatLayer],
@@ -297,26 +303,12 @@ function drawMap() {
   const editable = source.kind === "custom";
   const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
-  for (const g of [demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
-  campusLayer.clearLayers();
+  for (const g of [demandLayer, candidateLayer, existingLayer, newLayer]) g.clearLayers();
+  // Campus boundary (soft halo under a dashed line) and real building footprints.
   const campusRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
-  if (campusRing?.length) {
-    // Outline of the area the plan covers: a soft halo under a dashed line, so it reads on any base map.
-    L.polygon(campusRing, { color: "#000000", weight: 6, opacity: 0.35, fill: false, interactive: false }).addTo(campusLayer);
-    L.polygon(campusRing, { color: "#f5f5f5", weight: 2.5, opacity: 0.95, dashArray: "10 7", lineCap: "round", fill: false, interactive: false }).addTo(campusLayer);
-  }
-  if (source.kind === "lead" && lead?.footprints?.length) {
-    // The York team model's building footprints (OpenStreetMap), under the heatmap.
-    for (const fp of lead.footprints) {
-      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false })
-        .bindTooltip(esc(fp.name ?? ""), { sticky: true }).addTo(buildingLayer);
-    }
-  } else if (source.kind === "york" && york) {
-    // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
-    for (const fp of york.footprints) {
-      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false }).addTo(buildingLayer);
-    }
-  }
+  campusLayer.setRings(campusRing?.length ? [campusRing] : []);
+  const footprints = source.kind === "lead" ? lead?.footprints : source.kind === "york" ? york?.footprints : undefined;
+  buildingLayer.setRings((footprints ?? []).map((fp) => fp.ring));
   dropSoloPin(); // its marker is about to be replaced
   markers.clear();
 
