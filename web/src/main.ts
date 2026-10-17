@@ -7,9 +7,9 @@ import { evaluate, evaluateByPeriod } from "./model/coverage";
 import { metresToLatLon } from "./model/instance";
 import { CITATIONS } from "./model/params";
 import type { Solution } from "./model/solvers";
-import { LeadData, leadInstance, loadLead } from "./data";
+import { LeadData, leadInstance, loadLead, loadYork, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
-import { scenario, setCustomInstance, setLeadInstance, Source, sourceKey } from "./scenario";
+import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
 import {
   CustomDataset, datasetFromInstance, datasetToInstance, KINDS, loadDataset, newId, saveDataset,
@@ -53,6 +53,8 @@ const ui = {
   busyText: $("busyText"),
   siteCount: $("siteCount"),
   datasetSeg: $("datasetSeg"),
+  customOpt: $("customOpt"),
+  yorkOpt: $("yorkOpt"),
   datasetNote: $("datasetNote"),
   charts: $("charts"),
   kcurve: $("kcurve"),
@@ -72,12 +74,15 @@ let lead: LeadData | null = null; // the lead's exported campus + results, if pr
 
 // Uploaded or drawn locations. Every edit bumps `customVer`, which keys the scenario and solve caches.
 let custom: CustomDataset | null = loadDataset();
+// York University's real buildings from OpenStreetMap, if the export is present.
+let york: YorkData | null = null;
 let customVer = 0;
 
 const datasetChoice = () => document.querySelector<HTMLInputElement>("input[name=dataset]:checked")?.value;
 const settings = () => {
   const c = datasetChoice();
   const source: Source = c === "lead" && lead ? { kind: "lead" }
+    : c === "york" && york ? { kind: "york" }
     : c === "custom" && custom ? { kind: "custom", version: customVer }
     : lead ? { kind: "lead" }
     // No team export: the app's placeholder campus keeps the page usable.
@@ -108,7 +113,9 @@ const demandLayer = L.layerGroup();                // raw demand points
 const candidateLayer = L.layerGroup();             // candidate sites without an AED
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
+const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
 L.control.layers(undefined, {
+  "Building outlines": buildingLayer,
   "Optimization heatmap": heatLayer,
   "Raw demand points": demandLayer,
   "Existing AEDs": existingLayer,
@@ -203,7 +210,14 @@ function drawMap() {
   const editable = source.kind === "custom";
   const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
-  for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer]) g.clearLayers();
+  for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
+  if (source.kind === "york" && york) {
+    // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
+    L.polygon(york.campus, { color: "#71717a", weight: 1.2, dashArray: "4 4", fill: false, interactive: false }).addTo(buildingLayer);
+    for (const fp of york.footprints) {
+      L.polygon(fp.ring, { color: "#a1a1aa", weight: 0.8, opacity: 0.7, fillColor: "#a1a1aa", fillOpacity: 0.08, interactive: false }).addTo(buildingLayer);
+    }
+  }
   markers.clear();
 
   let maxRate = 0;
@@ -329,7 +343,7 @@ function commitCustom(opts: { refit?: boolean } = {}) {
   saveDataset(custom);
   customVer++;
   const inst = datasetToInstance(custom);
-  setCustomInstance(inst, customVer);
+  setInstance({ kind: "custom", version: customVer }, inst);
   prevIds = custom.sites.map((s) => s.id);
   updateCustomUi();
   if (opts.refit) refitPending = true;
@@ -360,19 +374,23 @@ function updateCustomUi() {
   } else {
     ui.budget.max = "30";
     if (Number(ui.budget.value) > 30) { ui.budget.value = "30"; ui.budgetOut.textContent = "30"; }
-    if (lead && datasetChoice() === "lead") {
+    if (york && settings().source.kind === "york") {
+      ui.datasetNote.textContent = `${york.stats.buildings} real buildings · ${york.stats.mappedAeds} AED mapped in OpenStreetMap · occupancy modelled`;
+    } else if (lead && datasetChoice() === "lead") {
       const ks = lead.results.kCurve.map((r) => r.K);
       ui.datasetNote.textContent = `Team campus · seed ${lead.source.seed} · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`;
     } else if (!lead) {
       ui.datasetNote.textContent = "Team export missing (run web/scripts/export_data.py): showing a placeholder campus";
     }
   }
-  ui.datasetSeg.hidden = !custom;
+  ui.datasetSeg.hidden = !custom && !york;
+  ui.customOpt.hidden = !custom;
+  ui.yorkOpt.hidden = !york;
   ui.budget.parentElement!.querySelector(".scale span:last-child")!.textContent = ui.budget.max;
   paintRange(ui.budget);
 }
 
-function selectDataset(value: "lead" | "custom") {
+function selectDataset(value: "lead" | "york" | "custom") {
   const r = document.querySelector<HTMLInputElement>(`input[name=dataset][value=${value}]`)!;
   r.disabled = false;
   r.checked = true;
@@ -641,7 +659,10 @@ ui.copyBtn.addEventListener("click", () => {
   // Never replace the viewer's own data without asking.
   if (custom && (custom.sites.length || custom.demand.length) &&
       !confirm(`Replace your dataset "${custom.name}" (${custom.sites.length} sites) with a copy of this campus?`)) return;
-  custom = datasetFromInstance(inst, s.source.kind === "lead" ? "Copy of team campus" : "Copy of placeholder campus");
+  custom = s.source.kind === "york" && york
+    ? { name: "Copy of York U (OpenStreetMap)", arrestsPerYear: york.arrestsPerYear,
+        sites: york.sites.map((x) => ({ ...x })), demand: york.demand.map((d) => ({ ...d, periodWeights: d.periodWeights && [...d.periodWeights] as [number, number, number] })) }
+    : datasetFromInstance(inst, s.source.kind === "lead" ? "Copy of team campus" : "Copy of placeholder campus");
   commitCustom({ refit: false });
   selectDataset("custom");
 });
@@ -844,8 +865,8 @@ function runIlp(id: number, s: ReturnType<typeof settings>): Promise<IlpReply> {
     };
     inflight = { id, cancel: () => { w.removeEventListener("message", onMsg); resolve({ id, error: "cancelled" }); } };
     w.addEventListener("message", onMsg);
-    const customInst = s.source.kind === "custom" ? scenario(s.source, s.emsResponseS).inst : undefined;
-    w.postMessage({ id, source: s.source, emsResponseS: s.emsResponseS, budget: s.budget, custom: customInst } satisfies IlpRequest);
+    const inst = s.source.kind === "custom" || s.source.kind === "york" ? scenario(s.source, s.emsResponseS).inst : undefined;
+    w.postMessage({ id, source: s.source, emsResponseS: s.emsResponseS, budget: s.budget, inst } satisfies IlpRequest);
   });
 }
 
@@ -950,6 +971,7 @@ ui.ems.addEventListener("input", () => { ui.emsOut.textContent = `${Number(ui.em
 paintRange(ui.budget);
 paintRange(ui.ems);
 function onSourceChange() {
+  map.attributionControl[settings().source.kind === "york" ? "addAttribution" : "removeAttribution"](YORK_CREDIT);
   state.solution = null;
   state.selected = null;
   hideInspector();
@@ -958,6 +980,7 @@ function onSourceChange() {
   solve();
 }
 document.querySelectorAll("input[name=dataset]").forEach((el) => el.addEventListener("change", onSourceChange));
+const YORK_CREDIT = "Buildings &copy; OpenStreetMap contributors (ODbL)";
 let chartW = 0;
 new ResizeObserver(([e]) => {
   const w = Math.round(e.contentRect.width);
@@ -970,13 +993,14 @@ ui.kcurve.addEventListener("pick", (e) => {
 });
 
 (async () => {
-  lead = await loadLead();
+  [lead, york] = await Promise.all([loadLead(), loadYork()]);
   if (lead) {
     setLeadInstance(leadInstance(lead));
   }
+  if (york) setInstance({ kind: "york" }, datasetToInstance(york));
   if (custom) {
     // A dataset saved in this browser from an earlier visit.
-    setCustomInstance(datasetToInstance(custom), customVer);
+    setInstance({ kind: "custom", version: customVer }, datasetToInstance(custom));
     prevIds = custom.sites.map((st) => st.id);
   }
   updateCustomUi();

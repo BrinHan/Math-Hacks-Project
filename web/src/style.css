@@ -574,3 +574,4 @@ td.site-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; whit
 .inspector .insp-close { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; }
 .inspector .pop-form h4 { padding-right: 24px; }
 @media (max-width: 600px) { .inspector { left: 10px; right: 10px; width: auto; bottom: 22px; } }
+.blurb b { color: var(--text-2); font-weight: 600; }

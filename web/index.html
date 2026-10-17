@@ -21,7 +21,9 @@
         </div>
       </header>
 
-      <p class="blurb">Expected cardiac-arrest survivors per year compared with waiting for the ambulance. The team's campus model has 30 buildings with occupancy by time of day; it is illustrative, not measured York data.</p>
+      <p class="blurb">Expected cardiac-arrest survivors per year compared with waiting for the ambulance.
+        <b>Team model</b>: the team's illustrative 30-building campus with full results.
+        <b>York U (real)</b>: Keele campus buildings from OpenStreetMap; occupancy is modelled, not measured.</p>
 
       <section class="group">
         <h2 class="group-title">Scenario</h2>
@@ -30,8 +32,9 @@
           <legend>Dataset</legend>
           <!-- The switch only appears once the viewer has data of their own; until then it is the team campus. -->
           <div class="seg" id="datasetSeg" hidden>
-            <label><input type="radio" name="dataset" value="lead" checked /><span>Team campus</span></label>
-            <label><input type="radio" name="dataset" value="custom" disabled /><span>My data</span></label>
+            <label><input type="radio" name="dataset" value="lead" checked /><span>Team model</span></label>
+            <label id="yorkOpt" hidden><input type="radio" name="dataset" value="york" /><span>York U (real)</span></label>
+            <label id="customOpt" hidden><input type="radio" name="dataset" value="custom" disabled /><span>My data</span></label>
           </div>
           <p id="datasetNote" class="field-note"></p>
           <div class="btn-row">

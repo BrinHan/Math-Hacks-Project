@@ -3,29 +3,26 @@ import highsLoader from "highs";
 import wasmUrl from "highs/runtime?url";
 import { leadInstance, loadLead } from "./data";
 import type { Instance } from "./model/instance";
-import { scenario, setCustomInstance, setLeadInstance, Source, customVersion } from "./scenario";
+import { hasInstance, scenario, setInstance, setLeadInstance, Source } from "./scenario";
 import { solveIlp } from "./model/solvers";
 
 export interface IlpRequest {
   id: number; source: Source; emsResponseS: number; budget: number;
-  custom?: Instance; // sent with custom sources: the worker cannot see the page's memory
+  inst?: Instance; // sent for York and custom sources: the worker cannot see the page's memory
 }
 export interface IlpReply { id: number; x?: Uint8Array; runtimeS?: number; status?: string; error?: string }
 
-let leadReady = false;
-
 self.onmessage = async (e: MessageEvent<IlpRequest>) => {
-  const { id, source, emsResponseS, budget, custom } = e.data;
+  const { id, source, emsResponseS, budget, inst } = e.data;
   try {
-    if (source.kind === "lead" && !leadReady) {
+    if (source.kind === "lead" && !hasInstance(source)) {
       const d = await loadLead();
       if (!d) throw new Error("lead.json not found");
       setLeadInstance(leadInstance(d));
-      leadReady = true;
     }
-    if (source.kind === "custom" && customVersion() !== source.version) {
-      if (!custom) throw new Error("custom dataset missing from request");
-      setCustomInstance(custom, source.version);
+    if ((source.kind === "custom" || source.kind === "york") && !hasInstance(source)) {
+      if (!inst) throw new Error(`${source.kind} dataset missing from request`);
+      setInstance(source, inst);
     }
     // A fresh HiGHS per solve: highs-js can corrupt its heap across repeated large solves.
     const highs = await highsLoader({ locateFile: () => wasmUrl });
