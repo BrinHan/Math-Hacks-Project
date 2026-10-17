@@ -4,7 +4,7 @@
 | --- | --- |
 | `build(seed=0, params=None, **gen_kwargs)` | `(Instance, Coverage)` |
 | `solve_ilp(cov, budget)` / `solve_greedy` / `solve_swap` | `Solution` |
-| `solve_population(inst, cov, budget, radius_s=180)` | `Solution` (population-only baseline) |
+| `solve_population(inst, cov, budget, radius_s=180.0, params=None)` | `Solution` (population-only baseline) |
 | `evaluate(cov, x)` | expected lives saved per year |
 | `evaluate_by_period(cov, x)` | lives per period (day, evening, night) |
 | `metres_to_latlon(xy, origin_latlon)` | `(N, 2)` lat, lon |

@@ -43,7 +43,7 @@ def generate_instance(seed: int = 0, extent_m: float = 2000.0, grid_n: int = 32,
     clustered near the centre). Each building holds a period-dependent number of people
     (PEOPLE x size), spread over grid cells by a Gaussian kernel (SIGMA_M) normalised so the
     building's people are conserved, plus a per-hectare background. Cell arrest rate is people
-    x incidence x public fraction x period share of the day. Indoor AED sites are placed near
+    x incidence x (public fraction / time away from home) x period share of the day. Indoor AED sites are placed near
     buildings (one per building when possible, the rest in proportion to size) and are open in
     a period iff the building has people then; outdoor sites are uniform and always open.
     All randomness comes from one default_rng(seed) in a fixed draw order.
@@ -125,8 +125,10 @@ def generate_instance(seed: int = 0, extent_m: float = 2000.0, grid_n: int = 32,
     building_people = np.array([PEOPLE[k] for k in kinds]) * size[:, None]      # (B, P)
     cell_ha = step ** 2 / 10_000.0
     people = kernel @ building_people + np.array(BACKGROUND_PER_HA) * cell_ha
-    cell_rate = (people * params.incidence_per_100k_yr / 1e5 * params.public_fraction
-                 * PERIOD_HOURS / 24.0)
+    # Occupants are already in public: scale incidence by the public hazard ratio
+    # (share of arrests in public / share of time spent away from home), not by the share alone.
+    hazard = params.public_fraction / params.away_time_share
+    cell_rate = people * params.incidence_per_100k_yr / 1e5 * hazard * PERIOD_HOURS / 24.0
 
     return Instance(
         cell_xy=cell_xy, cell_rate=cell_rate, site_xy=site_xy, site_cost=site_cost,

@@ -9,7 +9,7 @@ from aed.solvers.greedy import solve_greedy
 
 def _people(inst):
     p = Params()
-    scale = p.incidence_per_100k_yr / 1e5 * p.public_fraction * inst.period_hours / 24
+    scale = p.incidence_per_100k_yr / 1e5 * p.public_fraction / p.away_time_share * inst.period_hours / 24
     return inst.cell_rate / scale
 
 
@@ -104,3 +104,12 @@ def test_one_site_more_existing_than_indoor():
 def test_cells_inside_campus():
     inst = generate_instance(seed=0)
     assert inst.cell_xy.min() >= 0 and inst.cell_xy.max() <= 2000
+
+
+def test_rate_uses_public_hazard_ratio():
+    # Occupants are already in public, so public_fraction is divided by the share of time
+    # people spend away from home (a relative hazard), not applied as a plain filter.
+    base = generate_instance(seed=0, params=Params())
+    half = generate_instance(seed=0, params=Params(away_time_share=Params().away_time_share * 2))
+    assert np.allclose(half.cell_rate, base.cell_rate / 2)
+    assert 2.0 < base.cell_rate.sum() < 10.0

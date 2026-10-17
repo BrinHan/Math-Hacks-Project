@@ -10,13 +10,14 @@ from dataclasses import dataclass
 class Params:
     incidence_per_100k_yr: float = 55.0
     public_fraction: float = 0.18
+    away_time_share: float = 0.313
     walk_speed_mps: float = 1.4
     detour_factor: float = 1.3
     dispatch_delay_s: float = 60.0
     ems_response_s: float = 540.0
     survival_S0: float = 0.7
     survival_k_per_min: float = 0.10
-    shockable_fraction: float = 0.40
+    shockable_fraction: float = 0.265
     survival_form: str = "exp"
     band_edges_s: tuple[float, ...] = tuple(float(s) for s in range(60, 601, 60))
     max_tau_s: float = 600.0
@@ -27,6 +28,8 @@ class Params:
         edges = self.band_edges_s
         if not edges or any(b <= a for a, b in zip(edges, edges[1:])):
             raise ValueError("band_edges_s must be non-empty and strictly increasing")
+        if not 0.0 < self.away_time_share <= 1.0:
+            raise ValueError("away_time_share must be in (0, 1]")
         if not 0.0 <= self.shockable_fraction <= 1.0:
             raise ValueError("shockable_fraction must be in [0, 1]")
         if self.max_tau_s <= 0:
@@ -42,7 +45,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "ems_response_s": (420.0, 720.0),
     "survival_S0": (0.5, 0.8),
     "survival_k_per_min": (0.03, 0.12),
-    "shockable_fraction": (0.26, 0.60),
+    "shockable_fraction": (0.20, 0.38),
 }
 
 _E = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query="
@@ -114,7 +117,14 @@ CITATIONS: dict[str, str] = {
         "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=TITLE%3A%22Ventricular%20tachyarrhythmias%20after%20cardiac%20arrest%20in%20public%20versus%20at%20home%22&resultType=core&format=json"
         ": initial VF/pVT in public arrests 38% (EMS-witnessed) to 60% (bystander-witnessed); "
         "Fordyce et al. (2017), JAMA Cardiol 2(11):1226-1235. https://pmc.ncbi.nlm.nih.gov/articles/PMC5710360"
-        ": 26.5% of all public arrests. Base 0.40 is a judgement near the 38% EMS-witnessed public figure, between 26.5% (all public) and 60% (bystander-witnessed); 79% (bystander AED applied) lies above the range."
+        ": 26.5% of all public arrests. Base 0.265 = Fordyce's all-public figure, matching demand that counts every public arrest; range 0.20-0.38 (judgement: 21% home figure to 38% EMS-witnessed public)."
+    ),
+    "away_time_share": (
+        "Klepeis et al. (2001), National Human Activity Pattern Survey (NHAPS), "
+        "J Expo Anal Environ Epidemiol 11(3):231-252. "
+        "https://eta-publications.lbl.gov/sites/default/files/lbnl-47713.pdf"
+        ": 68.7% of time in a residence, so 31.3% away from home; public_fraction / away_time_share "
+        "is the arrest hazard for people present in public relative to the population average."
     ),
     "survival_form": "ASSUMPTION: exponential decay; linear offered as a sensitivity check.",
     "band_edges_s": "ASSUMPTION: 1-minute time bands up to 10 minutes.",

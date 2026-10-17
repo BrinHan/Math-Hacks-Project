@@ -13,7 +13,8 @@ paywalls were not read; every figure below comes from the abstract or page named
 
 ## Changed values
 
-- New parameter `shockable_fraction` = 0.40 (range 0.26-0.60), multiplying every AED benefit: an AED only helps shockable-rhythm arrests. Low end = Fordyce 2017 (26.5% of all public arrests); high end = Weisfeldt 2011 (60% of bystander-witnessed public arrests).
+- New parameter `shockable_fraction` = 0.265 (range 0.20-0.38), multiplying every AED benefit: an AED only helps shockable-rhythm arrests. Base = Fordyce 2017 (26.5% of all public arrests), matching demand that counts every public arrest. Range is a judgement: 0.20 near the home figure (21.0%), 0.38 = Weisfeldt 2011 EMS-witnessed public arrests.
+- New parameter `away_time_share` = 0.313 (Klepeis 2001, source 16). The generator counts people present in public, so `public_fraction` enters as the hazard ratio public_fraction / away_time_share (about 0.57) instead of a plain 18% filter, which had undercounted demand about 3.2x.
 
 | Parameter | Old | New | Why |
 |---|---|---|---|
@@ -167,6 +168,14 @@ No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
     locations (higher than the national 17.8%, so regional values can fall outside
     our 0.12-0.25 range).
 
+16. Klepeis NE, Nelson WC, Ott WR, Robinson JP, Tsang AM, Switzer P, Behar JV, Hern SC,
+    Engelmann WH (2001). The National Human Activity Pattern Survey (NHAPS): a resource for
+    assessing exposure to environmental pollutants. *Journal of Exposure Analysis and
+    Environmental Epidemiology* 11(3):231-252. PMID 11477521, doi:10.1038/sj.jea.7500165.
+    URL: https://eta-publications.lbl.gov/sites/default/files/lbnl-47713.pdf
+    Supports `away_time_share`: 68.7% of the day in a residence (86.9% indoors, 5.5% in
+    vehicles, 7.6% outdoors), all ages, US 1992-94. Abstract confirmed on Europe PMC.
+
 ## Parameter summary
 
 | Parameter | Base | Range | Sources | Figure used |
@@ -179,6 +188,8 @@ No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
 | `ems_response_s` | 540 | 420-720 | 11, 12, 7 (14) | median EMS response 7.6 min (CARES), 7 min (Mell); paramedics about 9.8 min after collapse (casinos). High end 720 s assumes an urban/suburban campus: it excludes the rural median of 13 min (Mell) |
 | `survival_S0` | 0.7 | 0.5-0.8 | 7, 6 | 74% shock within 3 min; 67% baseline |
 | `survival_k_per_min` | 0.10 | 0.03-0.12 | 6, 5, 11 | about 0.08 (Larsen, derived); odds x0.85-0.89 per min; registry 7-10% |
+| `shockable_fraction` | 0.265 | 0.20-0.38 | 15, 13 | VF/pVT in 26.5% of all public arrests (Fordyce); 38% EMS-witnessed public (Weisfeldt) |
+| `away_time_share` | 0.313 | fixed | 16 | 68.7% of time in a residence (NHAPS) |
 
 ### `dispatch_delay_s` is an assumption
 
@@ -209,7 +220,7 @@ open input.
 
 ## For model refinement
 
-(Not used by the current model; for later work. Do not treat as new parameters.)
+(Item (a) is now the `shockable_fraction` parameter; item (b) is a cross-check only.)
 
 (a) Share of public-location OHCA with an initial shockable rhythm (VF/pVT):
 - Weisfeldt et al. 2011 (source 13), ROC, 12,930 arrests, 2,042 in public.
@@ -234,9 +245,9 @@ open input.
 - Sanity check: an S0 of 0.7 refers to near-immediate defibrillation of a
   witnessed shockable arrest (casinos 74%, Larsen 67%), far above the 8-10% overall
   survival, which averages in delayed or unwitnessed arrests and non-shockable
-  rhythms. Multiplying S0 by the shockable share (about 0.26 public overall, 0.6 for
-  bystander-witnessed public arrests) before applying time decay would be the
-  consistent way to compare model output with these overall rates.
+  rhythms. The model now multiplies every benefit by the shockable share (0.265), so
+  its implied survival (S0 x 0.265, about 19% for an immediate shock) is comparable
+  with these overall rates.
 
 ## Range ends that are judgement, not sourced
 
