@@ -65,3 +65,16 @@ def test_rescale_respects_away_time_share():
     base = Params()
     p = dataclasses.replace(base, away_time_share=base.away_time_share * 2)
     assert np.allclose(uncertainty._rescale_demand(inst, base, p).cell_rate, inst.cell_rate / 2)
+
+
+def test_oat_skips_detour_when_walking_paths_are_used(monkeypatch):
+    real = uncertainty._base
+
+    def with_walk(seed, base):
+        inst, p = real(seed, base)
+        d = np.linalg.norm(inst.cell_xy[:, None] - inst.site_xy[None], axis=2) * 1.3
+        return dataclasses.replace(inst, walk_dist_m=d), p
+
+    monkeypatch.setattr(uncertainty, "GEN_KWARGS", SMALL)
+    monkeypatch.setattr(uncertainty, "_base", with_walk)
+    assert "detour_factor" not in {r.param for r in oat_sensitivity(seed=0, budget=3)}

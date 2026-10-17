@@ -103,6 +103,8 @@ def oat_sensitivity(seed: int, budget: float, base: Params | None = None) -> lis
     base_lives = solve_ilp(_coverage(inst, base), budget).lives
     rows = []
     for name, (lo, hi) in RANGES.items():
+        if name == "detour_factor" and inst.walk_dist_m is not None:
+            continue  # real walking paths replace the detour factor
         lives = []
         for v in (lo, hi):
             p = dataclasses.replace(base, **{name: v})
