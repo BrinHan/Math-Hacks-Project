@@ -163,7 +163,7 @@ const candidateLayer = L.layerGroup();             // candidate sites without an
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
 const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
-// "Map layers" card (top right) with a popover of toggles.
+// "Map details": layer toggles shown in a popover from the pill bar, like the other settings.
 const LAYERS: [string, L.LayerGroup][] = [
   ["AED reach zones", heatLayer],
   ["Recommended AEDs", newLayer],
@@ -172,35 +172,23 @@ const LAYERS: [string, L.LayerGroup][] = [
   ["Demand points", demandLayer],
   ["Building outlines", buildingLayer],
 ];
-const layersCtl = new L.Control({ position: "topright" });
-layersCtl.onAdd = () => {
-  const wrap = L.DomUtil.create("div", "layers-ctl");
-  const btn = Object.assign(document.createElement("button"), { type: "button", className: "layers-btn" });
-  btn.setAttribute("aria-expanded", "false");
-  btn.setAttribute("aria-haspopup", "true");
-  btn.setAttribute("aria-label", "Map layers");
-  btn.innerHTML = '<span class="ltext">Map layers</span><span class="lthumb" aria-hidden="true"></span>';
-  const pop = document.createElement("div");
-  pop.className = "layers-pop";
-  pop.hidden = true;
-  pop.innerHTML = "<h3>Map details</h3>";
+{
+  const field = document.createElement("div");
+  field.className = "field";
+  field.id = "layersField";
+  field.innerHTML = '<span class="flabel">Map details</span><p class="note">Choose what to draw on the map.</p>';
+  const list = document.createElement("div");
+  list.className = "layer-toggles";
   for (const [label, layer] of LAYERS) {
     const row = document.createElement("label");
     const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: map.hasLayer(layer) });
     box.addEventListener("change", () => (box.checked ? layer.addTo(map) : layer.remove()));
     row.append(box, document.createTextNode(label));
-    pop.append(row);
+    list.append(row);
   }
-  const setOpen = (open: boolean) => { pop.hidden = !open; btn.setAttribute("aria-expanded", String(open)); };
-  btn.addEventListener("click", () => setOpen(pop.hidden));
-  document.addEventListener("click", (e) => { if (!wrap.contains(e.target as Node)) setOpen(false); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
-  wrap.append(btn, pop);
-  L.DomEvent.disableClickPropagation(wrap);
-  L.DomEvent.disableScrollPropagation(wrap);
-  return wrap;
-};
-layersCtl.addTo(map);
+  field.append(list);
+  document.getElementById("fieldStore")!.append(field);
+}
 
 let fittedFor = "";
 let viewBounds: L.LatLngBounds | null = null;
@@ -1265,6 +1253,7 @@ const POPS: Record<string, string[]> = {
   // "All" holds every setting, so the bar can drop the less-used Show and Dataset pills.
   all: ["budgetField", "emsField", "periodField", "showField", "dataField"],
   budget: ["budgetField"], ems: ["emsField"], time: ["periodField"], show: ["showField"], data: ["dataField"],
+  layers: ["layersField"],
 };
 let popFor: HTMLButtonElement | null = null;
 function closePop(focusPill = false) {
