@@ -452,9 +452,11 @@ body.panel-open .leaflet-left { left: calc(var(--panel-w) + var(--gap)); }
 .legend.collapsed .legend-toggle::after { transform: rotate(-135deg) translateY(-2px); }
 .legend.collapsed .legend-body { display: none; }
 .legend-body { margin-top: 8px; width: 200px; }
-.legend h3 { margin: 6px 0 4px; font-size: 11.5px; font-weight: 700; color: var(--text-3); white-space: nowrap; }
+.legend h3 { margin: 6px 0 4px; font-size: 11.5px; font-weight: 700; color: var(--text-3); }
 .legend ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.legend li { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+/* Lines wrap inside the box instead of running past its edge. */
+.legend li { display: flex; align-items: flex-start; gap: 8px; line-height: 1.35; overflow-wrap: anywhere; }
+.legend li i { margin-top: 1.5px; }
 .legend li i { flex: none; width: 12px; height: 12px; border-radius: 3px; }
 .legend li i.dot { border-radius: 50%; }
 .legend hr { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
@@ -699,7 +701,7 @@ body:not(.panel-open) .panel { bottom: calc(100vh - var(--top) - var(--gap) - 58
 
 /* Gradient legend for the time-to-AED field */
 .legend .ramp { height: 10px; margin: 6px 0 4px; border-radius: 5px; }
-.legend .ramp-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-bottom: 6px; }
+.legend .ramp-scale { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-3); margin-bottom: 6px; }
 .legend .ramp-scale b { color: var(--text-2); font-weight: 700; }
 
 /* App logo in the panel header */

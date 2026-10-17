@@ -269,7 +269,7 @@ legend.onAdd = () => {
     `<div class="legend-body"><h3>Time to fetch an AED and return</h3>` +
     `<div class="ramp" style="background:${RAMP_CSS}"></div>` +
     `<div class="ramp-scale"><span>0 min</span><span>ambulance · <b id="legendEms">9 min</b></span></div>` +
-    `<ul>` + item("#d73027", "Red: no AED before the ambulance") + `</ul>` +
+    `<ul>` + item("#d73027", "No AED before the ambulance") + `</ul>` +
     `<p class="note">Colours stop at the campus boundary.</p><hr />` +
     `<h3>AEDs</h3><ul>` +
     item(SITE.existing, "Existing", true) + item(SITE.new, "New", true) + item(SITE.locked, "Locked this period", true) +
