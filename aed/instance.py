@@ -75,3 +75,6 @@ def metres_to_latlon(xy: np.ndarray, origin_latlon: tuple[float, float]) -> np.n
     lat = lat0 + xy[:, 1] / M_PER_DEG_LAT
     lon = lon0 + xy[:, 0] / (M_PER_DEG_LAT * np.cos(np.radians(lat0)))
     return np.column_stack([lat, lon])
+
+
+__all__ = ["Instance", "metres_to_latlon"]
