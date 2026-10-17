@@ -20,6 +20,15 @@ class Params:
     band_edges_s: tuple[float, ...] = tuple(float(s) for s in range(60, 601, 60))
     max_tau_s: float = 600.0
 
+    def __post_init__(self):
+        if self.survival_form not in ("exp", "linear"):
+            raise ValueError(f"survival_form must be 'exp' or 'linear', got {self.survival_form!r}")
+        edges = self.band_edges_s
+        if not edges or any(b <= a for a, b in zip(edges, edges[1:])):
+            raise ValueError("band_edges_s must be non-empty and strictly increasing")
+        if self.max_tau_s <= 0:
+            raise ValueError("max_tau_s must be positive")
+
 
 RANGES: dict[str, tuple[float, float]] = {
     "incidence_per_100k_yr": (40.0, 70.0),
