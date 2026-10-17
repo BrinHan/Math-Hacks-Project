@@ -62,3 +62,15 @@ def test_ilp_respects_costs():
     _, cov = build(seed=0, outdoor_cost=1.5, **SMALL)
     sol = solve_ilp(cov, 3)
     assert cov.site_cost[sol.x & ~cov.site_existing].sum() <= 3 + 1e-9
+
+
+def test_ilp_falls_back_to_greedy_when_no_solution(monkeypatch, tiny_instance):
+    import types
+    import warnings
+    from aed.solvers import ilp
+    cov = tiny_cov(tiny_instance)
+    monkeypatch.setattr(ilp, "milp", lambda *a, **k: types.SimpleNamespace(x=None, status=1, message="time limit"))
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        sol = ilp.solve_ilp(cov, 2)
+    assert sol.method == "greedy-fallback" and sol.x.sum() <= 2 and any("fall" in str(x.message) for x in w)

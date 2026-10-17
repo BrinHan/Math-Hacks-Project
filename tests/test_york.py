@@ -50,9 +50,33 @@ def test_weekday_peak_is_daytime(york):
     assert hourly.argmax() in (PERIODS.index("weekday_morning"), PERIODS.index("weekday_afternoon"))
 
 
-def test_walking_at_least_straight_line(york):
-    d = np.linalg.norm(york.cell_xy[:, None] - york.site_xy[None], axis=2)
-    assert np.all(york.walk_dist_m >= d - 1e-6)
+def test_aed_close_to_its_own_building(york):
+    # Walking distance from each published AED to the cell at its own building's centre
+    # stays within twice the straight line (no detours around the building).
+    from aed.data.york_tables import load_aeds, load_buildings
+    centre = {b["osm_id"]: (b["cx"], b["cy"]) for b in load_buildings()}
+    existing = np.flatnonzero(york.site_existing)
+    for a, j in zip(load_aeds(), existing):
+        c = np.array(centre[a["osm_id"]])
+        i = int(np.argmin(np.linalg.norm(york.cell_xy - c, axis=1)))
+        straight = np.linalg.norm(york.cell_xy[i] - york.site_xy[j])
+        assert york.walk_dist_m[i, j] <= max(2 * straight, 60.0), a["name"]
+
+
+def test_buildings_with_beds_open_at_night(york):
+    # Founders College holds classrooms and the Founders Residence beds.
+    from aed.data.york import site_buildings
+    names = np.array(site_buildings())
+    founders = (names == "Founders College") & ~york.site_existing
+    assert founders.any() and york.site_open[founders, PERIODS.index("night")].all()
+
+
+def test_bed_scenarios():
+    from aed.data.york import resident_beds
+    handbook, york, every = resident_beds("handbook"), resident_beds("york"), resident_beds("all")
+    assert sum(handbook.values()) == 2347
+    assert "340 Assiniboine" in york and "Building C1" not in york   # Quad is privately run
+    assert "Building C1" in every and resident_beds("none") == {}
 
 
 def test_rates_follow_params(york):

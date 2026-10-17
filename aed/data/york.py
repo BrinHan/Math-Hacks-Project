@@ -60,6 +60,14 @@ OUTDOOR_COST = 1.5
 ENTRANCE_SNAP_M = 40.0          # entrance must be this close to a kept building
 ENTRANCE_DEDUPE_M = 15.0        # merge entrances of one building closer than this
 CELL_KEEP_M = 50.0              # keep cells this close to a kept building outside the boundary
+# ASSUMPTION: within 100 m people cut through buildings and plazas, so the walking distance is
+# at most 1.3 x the straight line (the mapped footpaths miss indoor routes).
+SHORTCUT_M = 100.0
+SHORTCUT_DETOUR = 1.3
+# ASSUMPTION: York Housing operates these apartment buildings; their beds are estimated from
+# floor area. Other unlisted housing (e.g. the privately run Quad) is excluded in the base case.
+YORK_APARTMENTS = ("Assiniboine", "Passy")
+BED_MODES = ("york", "handbook", "all", "none")
 
 
 def _seg_dist(p: np.ndarray, poly: np.ndarray) -> float:
@@ -70,7 +78,31 @@ def _seg_dist(p: np.ndarray, poly: np.ndarray) -> float:
     return float(np.linalg.norm(a + t[:, None] * ab - p, axis=1).min())
 
 
-def _building_people(b: dict) -> np.ndarray:
+def _beds(b: dict, mode: str) -> float:
+    """Beds counted for building b under a bed scenario (see BED_MODES)."""
+    if mode not in BED_MODES:
+        raise ValueError(f"beds must be one of {BED_MODES}, got {mode!r}")
+    beds = b.get("beds") or 0
+    if mode == "none" or not beds:
+        return 0
+    if b["beds_source"] == "handbook" or mode == "all":
+        return beds
+    if mode == "york" and any(k in (b["name"] or "") for k in YORK_APARTMENTS):
+        return beds
+    return 0
+
+
+def _label(b: dict) -> str:
+    return b["name"] or f"osm {b['osm_id']}"
+
+
+def resident_beds(mode: str = "york") -> dict[str, float]:
+    """Beds per building under a bed scenario."""
+    return {_label(b): _beds(b, mode) for b in load_buildings()
+            if b["kind"] != "ignore" and _beds(b, mode) > 0}
+
+
+def _building_people(b: dict, beds: float) -> np.ndarray:
     """People present by period: classroom seats, floor-area users and residents add up
     (one footprint can hold all three, e.g. Founders College has classrooms and beds)."""
     floor = b["area_m2"] * b["levels"]
@@ -82,11 +114,11 @@ def _building_people(b: dict) -> np.ndarray:
         people = people + floor / SERVICES_M2 * SERVICES_PRESENCE
     elif kind == "athletic":
         people = people + floor / ATHLETIC_M2 * ATHLETIC_PRESENCE
-    return people + (b.get("beds") or 0) * RESIDENT_PRESENCE
+    return people + beds * RESIDENT_PRESENCE
 
 
-@lru_cache(maxsize=4)
-def _geometry(cell_m: float):
+@lru_cache(maxsize=8)
+def _geometry(cell_m: float, beds: str = "york", outdoor_cabinets: bool = True):
     """Everything that does not depend on Params: cells, people, sites, walking distances."""
     buildings = [b for b in load_buildings() if b["kind"] != "ignore"]
     feet = load_footprints()
@@ -103,15 +135,18 @@ def _geometry(cell_m: float):
     near = np.linalg.norm(grid[:, None] - centres[None], axis=2).min(1) <= CELL_KEEP_M
     cell_xy = grid[Polygon(boundary).contains_points(grid) | near]
 
-    # people: buildings spread by a footprint-sized kernel, walkers by path density
+    # people: buildings spread by a footprint-sized kernel, walkers by path length per cell
     people = np.zeros((len(cell_xy), len(PERIODS)))
     for b, c in zip(buildings, centres):
         sigma = max(20.0, np.sqrt(b["area_m2"]) / 2.0)
         d2 = ((cell_xy - c) ** 2).sum(1)
         k = np.exp(-(d2 - d2.min()) / (2.0 * sigma ** 2))
-        people += np.outer(k / k.sum(), _building_people(b))
-    node_cell = np.argmin(((graph.xy[:, None] - cell_xy[None]) ** 2).sum(2), axis=1)
-    path_share = np.bincount(node_cell, minlength=len(cell_xy)).astype(float)
+        people += np.outer(k / k.sum(), _building_people(b, _beds(b, beds)))
+    edges = graph.adj.tocoo()
+    one_way = edges.row < edges.col
+    mid = (graph.xy[edges.row[one_way]] + graph.xy[edges.col[one_way]]) / 2.0
+    edge_cell = np.argmin(((mid[:, None] - cell_xy[None]) ** 2).sum(2), axis=1)
+    path_share = np.bincount(edge_cell, weights=edges.data[one_way], minlength=len(cell_xy))
     people += np.outer(path_share / path_share.sum(), OUTDOOR_PEOPLE)
 
     # candidate sites: entrances snapped to buildings, deduplicated per building
@@ -159,7 +194,7 @@ def _geometry(cell_m: float):
             break
         if all(np.linalg.norm(junctions[j] - c) >= OUTDOOR_SPACING_M for c in chosen):
             chosen.append(junctions[j])
-    for p in chosen:
+    for p in (chosen if outdoor_cabinets else []):
         sites.append(p)
         kinds.append(("outdoor", -1))
         delays.append(FLOOR_DELAY_OUTDOOR_S)
@@ -178,16 +213,36 @@ def _geometry(cell_m: float):
 
     site_xy = np.array(sites)
     site_kind = [k for k, _ in kinds]
-    site_open = np.array([OPEN[k] for k in site_kind], dtype=bool)
+    # a building with residents is reachable whenever they are home (card access)
+    has_beds = [i >= 0 and _beds(buildings[i], beds) > 0 for _, i in kinds]
+    site_open = np.array([np.maximum(OPEN[k], OPEN["residence"]) if r else OPEN[k]
+                          for k, r in zip(site_kind, has_beds)], dtype=bool)
+    names = [_label(buildings[i]) if i >= 0 else "outdoor cabinet" for _, i in kinds]
+    for n, a in enumerate(load_aeds()):
+        names[len(names) - len(load_aeds()) + n] = a["building_name"]
+
     walk = walk_distance_matrix(graph, cell_xy, site_xy)
+    straight = np.linalg.norm(cell_xy[:, None] - site_xy[None], axis=2)
+    walk = np.where(straight <= SHORTCUT_M, np.minimum(walk, SHORTCUT_DETOUR * straight), walk)
     return (cell_xy, people, site_xy, np.array(costs), np.array(delays), site_open,
-            np.array(existing), site_kind, walk)
+            np.array(existing), site_kind, walk, names)
 
 
-def load_york(params: Params | None = None, cell_m: float = 50.0) -> Instance:
-    """The Keele campus as an Instance; walking distances replace Euclidean x detour."""
+def site_buildings(cell_m: float = 50.0, beds: str = "york", outdoor_cabinets: bool = True) -> list[str]:
+    """Building name for every site of load_york(...) with the same arguments."""
+    return list(_geometry(float(cell_m), beds, outdoor_cabinets)[-1])
+
+
+def load_york(params: Params | None = None, cell_m: float = 50.0, beds: str = "york",
+              outdoor_cabinets: bool = True) -> Instance:
+    """The Keele campus as an Instance; walking distances replace Euclidean x detour.
+
+    beds: "york" (handbook + York-run apartments, base case), "handbook", "all" (adds
+    privately run and unknown housing), "none". outdoor_cabinets=False drops the 20 cabinets.
+    """
     params = params or Params()
-    cell_xy, people, site_xy, cost, delay, site_open, existing, kind, walk = _geometry(float(cell_m))
+    (cell_xy, people, site_xy, cost, delay, site_open, existing, kind, walk,
+     _) = _geometry(float(cell_m), beds, bool(outdoor_cabinets))
     hazard = params.public_fraction / params.away_time_share
     rate = people * params.incidence_per_100k_yr / 1e5 * hazard * PERIOD_HOURS / 24.0
     return Instance(
