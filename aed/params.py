@@ -65,3 +65,6 @@ def param_table(p: Params | None = None) -> list[dict]:
         rows.append({"name": name, "base": getattr(p, name), "low": lo, "high": hi,
                      "citation": citation})
     return rows
+
+
+__all__ = ["Params", "RANGES", "CITATIONS", "param_table"]
