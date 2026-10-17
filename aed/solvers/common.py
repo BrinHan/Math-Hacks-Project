@@ -14,6 +14,10 @@ class Solution:
     runtime_s: float
     mip_gap: float | None = None
 
+    def new_sites(self, existing: np.ndarray) -> np.ndarray:
+        """Indices of sites chosen on top of the existing AEDs."""
+        return np.flatnonzero(self.x & ~existing)
+
 
 def _covered(cov: Coverage, x: np.ndarray) -> np.ndarray:
     return (cov.A @ np.asarray(x, dtype=float)) >= 1
