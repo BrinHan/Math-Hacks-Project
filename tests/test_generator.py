@@ -74,3 +74,33 @@ def test_concave_k_curve():
     _, cov = build(seed=0)
     l0, l10, l20 = (solve_greedy(cov, K).lives for K in (0, 10, 20))
     assert (l10 - l0) > 1.5 * (l20 - l10)
+
+
+def test_building_people_exact():
+    # n_buildings=1 draws no kinds, so the building's size is the first rng draw.
+    inst = generate_instance(seed=0, n_buildings=1)
+    cell_ha = (2000 / 32) ** 2 / 1e4
+    bld = _people(inst).sum(0) - np.array([12.8, 7.7, 2.6]) * cell_ha * inst.n_cells
+    size = np.random.default_rng(0).uniform(0.5, 2.0, size=1)[0]
+    assert bld[0] == pytest.approx(800 * size, rel=1e-9)
+
+
+def test_coarse_grid_large_campus_has_finite_demand():
+    inst = generate_instance(seed=0, extent_m=20000, grid_n=5)
+    assert np.isfinite(inst.cell_rate).all() and inst.cell_rate.sum() > 0
+
+
+def test_zero_sites_rejected():
+    with pytest.raises(ValueError):
+        generate_instance(seed=0, n_sites=0)
+
+
+def test_one_site_more_existing_than_indoor():
+    inst = generate_instance(seed=0, n_sites=1, n_existing=5)
+    inst.validate()
+    assert inst.n_sites == 1 and not inst.site_existing.any()
+
+
+def test_cells_inside_campus():
+    inst = generate_instance(seed=0)
+    assert inst.cell_xy.min() >= 0 and inst.cell_xy.max() <= 2000

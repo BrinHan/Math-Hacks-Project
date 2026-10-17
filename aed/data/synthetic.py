@@ -50,6 +50,8 @@ def generate_instance(seed: int = 0, extent_m: float = 2000.0, grid_n: int = 32,
     """
     if n_buildings < 1:
         raise ValueError("n_buildings must be >= 1")
+    if n_sites < 1:
+        raise ValueError("n_sites must be >= 1")
     params = params or Params()
     rng = np.random.default_rng(seed)
 
@@ -117,7 +119,8 @@ def generate_instance(seed: int = 0, extent_m: float = 2000.0, grid_n: int = 32,
     gx, gy = np.meshgrid(axis, axis)
     cell_xy = np.column_stack([gx.ravel(), gy.ravel()])
     d2 = ((cell_xy[:, None, :] - centres[None, :, :]) ** 2).sum(axis=2)
-    kernel = np.exp(-d2 / (2.0 * SIGMA_M ** 2))
+    # Shift by each building's nearest-cell distance so the exp never underflows to all zeros.
+    kernel = np.exp(-(d2 - d2.min(axis=0, keepdims=True)) / (2.0 * SIGMA_M ** 2))
     kernel /= kernel.sum(axis=0, keepdims=True)
     building_people = np.array([PEOPLE[k] for k in kinds]) * size[:, None]      # (B, P)
     cell_ha = step ** 2 / 10_000.0

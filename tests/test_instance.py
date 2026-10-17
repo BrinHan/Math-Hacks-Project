@@ -45,3 +45,10 @@ def test_summary_mentions_counts():
 def test_metres_to_latlon_east():
     (lat, lon), = metres_to_latlon(np.array([[1000.0, 0.0]]), (43.0, -80.0))
     assert lat == pytest.approx(43.0) and lon > -80.0
+
+
+def test_validate_rejects_nan_rate():
+    inst = generate_instance(seed=0, **SMALL)
+    inst.cell_rate[0, 0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
+        inst.validate()

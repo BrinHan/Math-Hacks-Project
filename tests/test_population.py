@@ -35,6 +35,10 @@ def test_population_picks_busiest_site_first():
     assert solve_population(inst, cov, 1).x[np.argmax(_score(inst))]
 
 
-def test_population_scores_are_informative():
-    inst, _ = build(seed=0, **SMALL)
-    assert (_score(inst) > 0).mean() > 0.8      # radius on one-way walk, not on full response time
+def test_population_uses_one_way_walk_with_given_params():
+    inst, cov = build(seed=0, grid_n=12, n_buildings=8, n_sites=40, n_existing=0, outdoor_cost=1.0)
+    p = Params(walk_speed_mps=2.0, detour_factor=1.2)
+    d = np.linalg.norm(inst.cell_xy[:, None] - inst.site_xy[None], axis=2)
+    score = np.where(1.2 * d / 2.0 <= 400.0, inst.cell_rate.sum(1)[:, None], 0.0).sum(0)
+    sol = solve_population(inst, cov, 1, radius_s=400.0, params=p)
+    assert sol.x[np.argmax(score)] and sol.x.sum() == 1
