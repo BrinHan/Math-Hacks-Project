@@ -17,15 +17,23 @@ Give it a budget of K new AEDs and it returns the K sites that maximize expected
 
 ## The app
 
-The app is in `web/`. The map fills the page, with a planner panel on the left. Drag the budget slider and the ILP re-solves in your browser (HiGHS compiled to WebAssembly), so there's no server. Black pins are new AEDs, blue pins are York's existing ones, and the colored rings show how far a bystander can fetch an AED and get back within 2, 4 or 6 minutes.
+The app is in `web/`. The map fills the page. A list of AED sites sits on the left, scenario pills run across the top, and the ILP re-solves in your browser (HiGHS compiled to WebAssembly) whenever you change one, so there's no server. Red pins are recommended sites and white pins are York's installed AEDs. The colored rings show how far a bystander can fetch an AED and get back within 2, 4 or 6 minutes. The card at the top of the list gives the headline, such as "+0.075 lives saved a year" for 10 new AEDs on top of the 19 installed ones.
+
+![The web app on York's Keele campus: site list, scenario pills and AED reach rings](docs/img/overview.png)
+
+The "New AEDs" pill sets the budget from 0 to 30. Here it's swept across that range.
 
 ![Sweeping the budget from 0 to 30 new AEDs](docs/img/budget-sweep.gif)
 
-The time-of-day buttons switch between the five periods. Sites in locked buildings turn gray, and the rings shrink to what the open sites can reach.
+The time-of-day pill switches between the five periods. Sites in locked buildings turn gray, and the rings shrink to what the open sites can reach. The "Ambulance" pill moves the response time from 7 to 12 minutes, and the other pills filter the list to recommended or installed sites and switch datasets.
 
 ![Cycling through the five time periods for the same plan](docs/img/time-of-day.gif)
 
-The Insights button opens charts for lives saved against budget (ILP, greedy and a population-only baseline, with the Monte Carlo 90% band) and a tornado chart of which assumptions move the answer most. The same sheet has a short "How it works" and the full assumptions table.
+Each site in the list opens into a card with a landmark photo (Wikimedia Commons, credited in the app) or Esri aerial imagery, the lives it adds per year, its 4-minute reach, and whether it's open in each period. The "robust" figure is the share of Monte Carlo runs that picked the site. You can search by building name and sort by relevance, name, hours or robustness.
+
+![An expanded site card for Tatham Hall Residence](docs/img/site.png)
+
+The summary card opens the Insights sheet, with charts for lives saved against budget (ILP, greedy and a population-only baseline, with the Monte Carlo 90% band) and a tornado chart of which assumptions move the answer most. The same sheet has a short "How it works" and the full assumptions table.
 
 ![Insights sheet with the budget curve and sensitivity chart](docs/img/insights.png)
 
