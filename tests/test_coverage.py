@@ -68,3 +68,14 @@ def test_max_lives_is_all_sites(tiny_instance):
     cov = cov_for(tiny_instance)
     assert cov.max_lives() == pytest.approx(evaluate(cov, np.ones(8, bool)))
     assert cov.n_rows == cov.A.shape[0]
+
+
+def test_band_sets_nested(tiny_instance):
+    cov = cov_for(tiny_instance)
+    sites = {}
+    for r in range(cov.n_rows):
+        key = (cov.row_cell[r], cov.row_period[r], cov.row_band[r])
+        sites[key] = set(cov.A.indices[cov.A.indptr[r]:cov.A.indptr[r + 1]])
+    for (i, q, k), s in sites.items():
+        if (i, q, k + 1) in sites:
+            assert s <= sites[(i, q, k + 1)]
