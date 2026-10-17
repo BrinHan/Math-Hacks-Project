@@ -55,3 +55,10 @@ keeps the solver fast: about 13,700 rows solve in a few seconds.
 - **Swap (Teitz-Bart)** starts from greedy and exchanges one chosen site for one unchosen
   site while that improves the objective.
 - **Population-only** ranks sites by people nearby, ignoring lockout and survival.
+
+## Uncertainty
+
+Monte Carlo: each scenario draws every parameter uniformly in its range, scales demand by
+0.7-1.3, and flips the opening hours of 10% of sites. We report the base-case plan's lives
+saved as a mean with a 90% interval, and how often each site is chosen when re-optimised.
+One-at-a-time sensitivity moves each parameter to its low and high value (tornado chart).
