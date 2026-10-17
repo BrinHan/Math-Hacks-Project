@@ -1,4 +1,4 @@
-// AED placement demo (Plan 3): budget slider, solver choice, time-of-day selector, Leaflet map.
+// AED placement demo (Plan 3): budget slider, ambulance time, time-of-day selector, Leaflet map.
 // One placement serves every period (spec section 5); switching period never re-optimizes.
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -6,7 +6,7 @@ import "./style.css";
 import { evaluate, evaluateByPeriod } from "./model/coverage";
 import { metresToLatLon } from "./model/instance";
 import { CITATIONS } from "./model/params";
-import { Solution, solveGreedy } from "./model/solvers";
+import type { Solution } from "./model/solvers";
 import { LeadData, leadInstance, loadLead } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
 import { scenario, setLeadInstance, Source } from "./scenario";
@@ -69,7 +69,6 @@ const settings = () => ({
     : { kind: "synthetic", seed: Math.max(0, Math.floor(Number(ui.seed.value) || 0)) }) as Source,
   budget: Number(ui.budget.value),
   emsResponseS: Number(ui.ems.value) * 60,
-  method: (document.querySelector<HTMLInputElement>("input[name=solver]:checked")!.value) as "ilp" | "greedy",
 });
 
 // ---------- map ----------
@@ -360,7 +359,7 @@ ui.sites.addEventListener("focusin", (e) => {
 });
 
 function drawPanels() {
-  const { source, emsResponseS, method } = settings();
+  const { source, emsResponseS } = settings();
   const { inst, cov, params } = scenario(source, emsResponseS);
   const sol = state.solution;
   const x = sol?.x ?? inst.siteExisting;
@@ -382,9 +381,10 @@ function drawPanels() {
   const livesNote = leadRow
     ? `${signed(gain)} vs existing · ${Math.abs(leadRow.ilp_lives - lives) < 5e-6 ? "matches" : "differs from"} lead's ${leadRow.ilp_lives.toFixed(3)}`
     : `${signed(gain)} vs existing AEDs only`;
-  const solveNote = !sol ? (method === "ilp" ? "HiGHS ILP" : "Lazy greedy")
-    : sol.status === "lead" ? "Lead's ILP · placements.json"
-    : sol.method === "ilp" ? `HiGHS ILP in browser · ${sol.status}` : "Lazy greedy in browser";
+  // Greedy is not a choice in the app; the team's precomputed gap says what optimizing buys.
+  const solveNote = !sol ? "HiGHS ILP"
+    : leadRow ? `Team ILP · ${leadRow.gap_pct > 0.05 ? `greedy is ${leadRow.gap_pct.toFixed(1)}% short` : "greedy ties"}`
+    : `HiGHS ILP in browser · ${sol.status}`;
   ui.metrics.innerHTML =
     metric("heart", "Lives saved / yr", lives.toFixed(3), livesNote, gain > 0 ? "up" : "") +
     metric("pin", "AEDs placed", `${nNew}<small>new</small>`, `plus ${nExisting} existing`) +
@@ -436,7 +436,7 @@ function runIlp(id: number, s: ReturnType<typeof settings>): Promise<IlpReply> {
 
 /** The lead's own ILP answer for this budget, when the scenario is exactly the one they ran. */
 function leadPlacement(s: ReturnType<typeof settings>): Uint8Array | null {
-  if (!lead || s.source.kind !== "lead" || s.method !== "ilp") return null;
+  if (!lead || s.source.kind !== "lead") return null;
   if (s.emsResponseS !== Number(lead.params.ems_response_s)) return null;
   const ids = lead.results.placements[String(s.budget)];
   if (!ids) return null;
@@ -447,7 +447,7 @@ function leadPlacement(s: ReturnType<typeof settings>): Uint8Array | null {
 
 async function solve() {
   const s = settings();
-  const key = `${JSON.stringify(s.source)}:${s.emsResponseS}:${s.method}:${s.budget}`;
+  const key = `${JSON.stringify(s.source)}:${s.emsResponseS}:${s.budget}`;
   const id = ++requestId;
   let sol = solveCache.get(key);
   if (!sol) {
@@ -456,8 +456,6 @@ async function solve() {
       const cov = scenario(s.source, s.emsResponseS).cov;
       const row = lead!.results.kCurve.find((r) => r.K === s.budget);
       sol = { x: fromLead, lives: evaluate(cov, fromLead), method: "ilp", runtimeS: row?.ilp_time_s ?? 0, status: "lead" };
-    } else if (s.method === "greedy") {
-      sol = solveGreedy(scenario(s.source, s.emsResponseS).cov, s.budget);
     } else {
       ui.busyText.textContent = "Solving ILP…";
       ui.busy.classList.remove("error");
@@ -479,7 +477,7 @@ async function solve() {
   }
   if (id !== requestId) return; // a newer request superseded this one
   if (inflight && inflight.id !== id) {
-    // A cached / greedy / lead answer arrived while an older ILP was still running: stop it.
+    // A cached or team answer arrived while an older ILP was still running: stop it.
     inflight.cancel();
     worker.terminate();
     worker = newWorker();
@@ -546,7 +544,6 @@ function onSourceChange() {
 }
 ui.seed.addEventListener("change", onSourceChange);
 document.querySelectorAll("input[name=dataset]").forEach((el) => el.addEventListener("change", onSourceChange));
-document.querySelectorAll("input[name=solver]").forEach((el) => el.addEventListener("change", solve));
 ui.candidates.addEventListener("change", drawMap);
 let chartW = 0;
 new ResizeObserver(([e]) => {
