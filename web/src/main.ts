@@ -1397,5 +1397,6 @@ ui.kcurve.addEventListener("pick", (e) => {
 
 // Development-only test hook (stripped from production builds): lets automated checks drive the editor.
 if (import.meta.env.DEV) {
-  (window as unknown as { __aed: unknown }).__aed = { openSiteEditor, openDemandEditor, getCustom: () => custom };
+  (window as unknown as { __aed: unknown }).__aed = { openSiteEditor, openDemandEditor, getCustom: () => custom, map, heatLayer, state, settings, L,
+    lastInst: () => scenario(settings().source, settings().emsResponseS).inst };
 }

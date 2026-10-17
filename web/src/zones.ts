@@ -47,6 +47,7 @@ export class ZoneLayer extends L.Layer {
   private ring: L.LatLng[] | null = null;
   private timing: ZoneTiming = { perMetreS: 1.86, emsS: 540, maxS: 540 };
   private bounds: L.LatLngBounds | null = null; // geographic extent of the last drawing (for zoom animation)
+  private drawZoom = 0;                           // zoom level the last drawing was made at
 
   constructor(opacity = 0.55) {
     super();
@@ -66,7 +67,8 @@ export class ZoneLayer extends L.Layer {
   }
 
   getEvents(): { [name: string]: L.LeafletEventHandlerFn } {
-    return { zoomanim: this.animateZoom as L.LeafletEventHandlerFn, moveend: this.redraw, zoomend: this.redraw, resize: this.redraw, viewreset: this.redraw };
+    // "zoom" fires on every frame of flyTo / setView animations, which send no zoomanim: follow them.
+    return { zoomanim: this.animateZoom as L.LeafletEventHandlerFn, zoom: this.follow, moveend: this.redraw, zoomend: this.redraw, resize: this.redraw, viewreset: this.redraw };
   }
 
   onAdd(map: L.Map) {
@@ -95,6 +97,13 @@ export class ZoneLayer extends L.Layer {
     L.DomUtil.setTransform(this.canvas, offset, scale);
   }
 
+  /** Keep the last drawing pinned to the map mid-animation by moving and scaling it (no repaint). */
+  private follow() {
+    const map = this.mapRef();
+    if (!map || !this.bounds) return;
+    L.DomUtil.setTransform(this.canvas, map.latLngToLayerPoint(this.bounds.getNorthWest()), map.getZoomScale(map.getZoom(), this.drawZoom));
+  }
+
   private mapRef() {
     return (this as unknown as { _map?: L.Map })._map;
   }
@@ -117,6 +126,7 @@ export class ZoneLayer extends L.Layer {
       map.containerPointToLatLng([-padX, size.y + padY]),
       map.containerPointToLatLng([size.x + padX, -padY]),
     );
+    this.drawZoom = map.getZoom();
     const ctx = c.getContext("2d")!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
