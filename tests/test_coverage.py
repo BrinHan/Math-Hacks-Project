@@ -79,3 +79,8 @@ def test_band_sets_nested(tiny_instance):
     for (i, q, k), s in sites.items():
         if (i, q, k + 1) in sites:
             assert s <= sites[(i, q, k + 1)]
+
+
+def test_coverage_summary(tiny_instance):
+    s = cov_for(tiny_instance).summary()
+    assert set(s) == {"rows", "sites", "nonzeros", "max_lives"} and s["sites"] == 8
