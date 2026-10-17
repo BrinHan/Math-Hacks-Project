@@ -348,7 +348,8 @@ function drawMap() {
   campusLayer.setRings(campusRing?.length ? [campusRing] : []);
   const footprints = source.kind === "lead" ? lead?.footprints : source.kind === "york" ? york?.footprints : undefined;
   // Heights for 3D: OSM floor counts at about 3.5 m a floor (buildings without one count as 2 floors).
-  buildingLayer.setRings((footprints ?? []).map((fp) => fp.ring), (footprints ?? []).map((fp) => 3.5 * ((fp as { levels?: number }).levels || 2)));
+  const fps = (footprints ?? []) as { ring: [number, number][]; levels?: number; holes?: [number, number][][] }[];
+  buildingLayer.setRings(fps.map((fp) => fp.ring), fps.map((fp) => 3.5 * (fp.levels || 2)), fps.map((fp) => fp.holes));
   dropSoloPin(); // its marker is about to be replaced
   markers.clear();
 

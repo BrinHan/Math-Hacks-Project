@@ -25,6 +25,8 @@ export class OutlineLayer extends L.Layer {
   private bounds: L.LatLngBounds | null = null;
   private drawZoom = 0;
   private heights: number[] = []; // metres, per ring (3D mode)
+  private holes: L.LatLng[][][] = []; // courtyards, per ring
+  private drawSize: L.Point | null = null;
   private extrude = false;
 
   constructor(private style: OutlineStyle) {
@@ -34,9 +36,11 @@ export class OutlineLayer extends L.Layer {
     this.canvas.style.transformOrigin = "0 0";
   }
 
-  setRings(rings: [number, number][][], heightsM: number[] = []) {
-    this.rings = rings.map((r) => r.map(([a, b]) => L.latLng(a, b)));
+  setRings(rings: [number, number][][], heightsM: number[] = [], holes: ([number, number][][] | undefined)[] = []) {
+    const ll = (r: [number, number][]) => r.map(([a, b]) => L.latLng(a, b));
+    this.rings = rings.map(ll);
     this.heights = heightsM;
+    this.holes = rings.map((_, i) => (holes[i] ?? []).map(ll));
     this.redraw();
     return this;
   }
@@ -50,9 +54,10 @@ export class OutlineLayer extends L.Layer {
   }
 
   getEvents(): { [name: string]: L.LeafletEventHandlerFn } {
-    // "move" and "zoom" fire on every frame of drags and fly-to: repaint (cheap: a few hundred points).
+    // "zoom" fires on every frame of fly-to: repaint so lines stay crisp. Plain drags move the canvas
+    // with the map, so they only repaint once the view leaves the padded drawing.
     return {
-      move: this.redraw, zoom: this.redraw, moveend: this.redraw, zoomend: this.redraw,
+      move: this.refresh, zoom: this.redraw, moveend: this.refresh, zoomend: this.redraw,
       resize: this.redraw, viewreset: this.redraw, zoomanim: this.animateZoom as L.LeafletEventHandlerFn,
     };
   }
@@ -77,6 +82,14 @@ export class OutlineLayer extends L.Layer {
     return (this as unknown as { _map?: L.Map })._map;
   }
 
+  private refresh() {
+    const map = this.mapRef();
+    if (!map) return;
+    if (this.bounds && map.getZoom() === this.drawZoom && map.getSize().equals(this.drawSize ?? L.point(0, 0)) &&
+        this.bounds.contains(map.getBounds())) return;
+    this.redraw();
+  }
+
   private animateZoom(e: L.ZoomAnimEvent) {
     const map = this.mapRef();
     if (!map || !this.bounds) return;
@@ -88,7 +101,8 @@ export class OutlineLayer extends L.Layer {
     const map = this.mapRef();
     if (!map) return;
     const size = map.getSize();
-    const pad = 40; // a little margin so line caps at the edge are not clipped
+    const pad = Math.round(0.25 * Math.max(size.x, size.y)); // margin so short drags need no repaint
+    this.drawSize = size;
     const W = size.x + 2 * pad, H = size.y + 2 * pad;
     const dpr = window.devicePixelRatio || 1;
     const c = this.canvas;
@@ -108,7 +122,7 @@ export class OutlineLayer extends L.Layer {
 
     const path = () => {
       ctx.beginPath();
-      for (const ring of this.rings) {
+      for (const ring of [...this.rings, ...this.holes.flat()]) {
         ring.forEach((p, i) => {
           const pt = map.latLngToContainerPoint(p);
           if (i) ctx.lineTo(pt.x + pad, pt.y + pad); else ctx.moveTo(pt.x + pad, pt.y + pad);
@@ -121,7 +135,7 @@ export class OutlineLayer extends L.Layer {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     path();
-    if (s.fill) { ctx.globalAlpha = s.fillAlpha ?? 1; ctx.fillStyle = s.fill; ctx.fill(); }
+    if (s.fill) { ctx.globalAlpha = s.fillAlpha ?? 1; ctx.fillStyle = s.fill; ctx.fill("evenodd"); }
     if (s.halo) {
       ctx.setLineDash([]);
       ctx.globalAlpha = s.halo.alpha; ctx.strokeStyle = s.halo.stroke; ctx.lineWidth = s.halo.width; ctx.stroke();
@@ -134,44 +148,48 @@ export class OutlineLayer extends L.Layer {
   private drawExtruded(ctx: CanvasRenderingContext2D, map: L.Map, pad: number) {
     const lat = map.getCenter().lat;
     const mPerPx = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / 2 ** (map.getZoom() + 8);
+    const toPts = (ring: L.LatLng[]) => ring.map((p) => { const q = map.latLngToContainerPoint(p); return [q.x + pad, q.y + pad]; });
     const items = this.rings.map((ring, i) => {
-      const pts = ring.map((p) => { const q = map.latLngToContainerPoint(p); return [q.x + pad, q.y + pad]; });
-      return { pts, lift: ((this.heights[i] ?? 7) / mPerPx) * TILT, ymax: Math.max(...pts.map((p) => p[1])) };
+      const pts = toPts(ring);
+      return { pts, holes: this.holes[i].map(toPts), lift: ((this.heights[i] ?? 7) / mPerPx) * TILT, ymax: Math.max(...pts.map((p) => p[1])) };
     });
     // Paint far (north, higher on screen) to near, so nearer buildings cover the ones behind.
     items.sort((a, b) => a.ymax - b.ymax);
     ctx.lineJoin = "round";
     ctx.setLineDash([]);
-    for (const { pts, lift } of items) {
-      const n = pts.length;
-      let area = 0;
-      for (let k = 0; k < n; k++) { const [x1, y1] = pts[k], [x2, y2] = pts[(k + 1) % n]; area += x1 * y2 - x2 * y1; }
-      const sign = Math.sign(area) || 1;
+    const trace = (rings: number[][][], dx: number, dy: number) => {
+      ctx.beginPath();
+      for (const r of rings) { r.forEach(([x, y], k) => (k ? ctx.lineTo(x + dx, y + dy) : ctx.moveTo(x + dx, y + dy))); ctx.closePath(); }
+    };
+    for (const { pts: outer, holes, lift } of items) {
       // Footprint shadow on the ground.
-      ctx.beginPath();
-      pts.forEach(([x, y], k) => (k ? ctx.lineTo(x + lift * 0.35, y + lift * 0.1) : ctx.moveTo(x + lift * 0.35, y + lift * 0.1)));
-      ctx.closePath();
-      ctx.globalAlpha = 0.35; ctx.fillStyle = "#000000"; ctx.fill();
-      // Walls facing the viewer (outward normal pointing down the screen), shaded by orientation.
-      for (let k = 0; k < n; k++) {
-        const [x1, y1] = pts[k], [x2, y2] = pts[(k + 1) % n];
-        const len = Math.hypot(x2 - x1, y2 - y1);
-        if (len < 0.01) continue;
-        const nx = (sign * (y2 - y1)) / len, ny = (sign * -(x2 - x1)) / len;
-        if (ny <= 0) continue;
-        const lit = 0.5 + 0.5 * -(nx * LIGHT[0] + ny * LIGHT[1]); // 0 (shade) .. 1 (lit)
-        const v = Math.round(70 + 80 * lit);
-        ctx.beginPath();
-        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - lift); ctx.lineTo(x1, y1 - lift);
-        ctx.closePath();
-        ctx.globalAlpha = 0.92; ctx.fillStyle = `rgb(${v},${v},${v + 8})`; ctx.fill();
-        ctx.lineWidth = 0.6; ctx.strokeStyle = "#1a1a1a"; ctx.globalAlpha = 0.5; ctx.stroke();
+      trace([outer, ...holes], lift * 0.35, lift * 0.1);
+      ctx.globalAlpha = 0.35; ctx.fillStyle = "#000000"; ctx.fill("evenodd");
+      // Walls facing the viewer (normal pointing out of the building and down the screen), shaded by
+      // orientation. A courtyard's walls face into it, so its normals are flipped.
+      for (const [pts, flip] of [[outer, 1], ...holes.map((h) => [h, -1] as const)] as [number[][], number][]) {
+        const n = pts.length;
+        let area = 0;
+        for (let k = 0; k < n; k++) { const [x1, y1] = pts[k], [x2, y2] = pts[(k + 1) % n]; area += x1 * y2 - x2 * y1; }
+        const sign = (Math.sign(area) || 1) * flip;
+        for (let k = 0; k < n; k++) {
+          const [x1, y1] = pts[k], [x2, y2] = pts[(k + 1) % n];
+          const len = Math.hypot(x2 - x1, y2 - y1);
+          if (len < 0.01) continue;
+          const nx = (sign * (y2 - y1)) / len, ny = (sign * -(x2 - x1)) / len;
+          if (ny <= 0) continue;
+          const lit = 0.5 + 0.5 * -(nx * LIGHT[0] + ny * LIGHT[1]); // 0 (shade) .. 1 (lit)
+          const v = Math.round(70 + 80 * lit);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - lift); ctx.lineTo(x1, y1 - lift);
+          ctx.closePath();
+          ctx.globalAlpha = 0.92; ctx.fillStyle = `rgb(${v},${v},${v + 8})`; ctx.fill();
+          ctx.lineWidth = 0.6; ctx.strokeStyle = "#1a1a1a"; ctx.globalAlpha = 0.5; ctx.stroke();
+        }
       }
-      // Roof.
-      ctx.beginPath();
-      pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y - lift) : ctx.moveTo(x, y - lift)));
-      ctx.closePath();
-      ctx.globalAlpha = 0.9; ctx.fillStyle = "#c9ccd1"; ctx.fill();
+      // Roof, with courtyards open.
+      trace([outer, ...holes], 0, -lift);
+      ctx.globalAlpha = 0.9; ctx.fillStyle = "#c9ccd1"; ctx.fill("evenodd");
       ctx.globalAlpha = 1; ctx.lineWidth = 1; ctx.strokeStyle = "#f2f2f2"; ctx.stroke();
     }
     ctx.globalAlpha = 1;

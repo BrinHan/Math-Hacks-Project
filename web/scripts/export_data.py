@@ -41,6 +41,55 @@ def read_csv(path: Path) -> list[dict]:
         return [{k: num(v) for k, v in row.items()} for row in csv.DictReader(f)]
 
 
+def _stitch(ways: list[list[list[float]]]) -> list[list[list[float]]]:
+    """Join OSM member ways that share endpoints into closed rings."""
+    ways = [list(w) for w in ways]
+    rings = []
+    while ways:
+        ring = ways.pop(0)
+        while ring[0] != ring[-1]:
+            for i, w in enumerate(ways):
+                if w[0] == ring[-1]:
+                    ring += w[1:]
+                elif w[-1] == ring[-1]:
+                    ring += w[::-1][1:]
+                else:
+                    continue
+                ways.pop(i)
+                break
+            else:
+                break  # open ring: close it as is
+        if ring[0] == ring[-1]:
+            ring = ring[:-1]  # rings are stored open, like the other footprints
+        rings.append([[round(a, 6), round(c, 6)] for a, c in ring])
+    return rings
+
+
+def _area(ring: list[list[float]]) -> float:
+    return abs(sum(a[1] * b[0] - b[1] * a[0] for a, b in zip(ring, ring[1:] + ring[:1]))) / 2
+
+
+def _inside(pt: list[float], ring: list[list[float]]) -> bool:
+    y, x = pt
+    hit = False
+    for (y1, x1), (y2, x2) in zip(ring, ring[1:] + ring[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def relation_shapes() -> dict[int, tuple[list, list]]:
+    """Real outlines of the York multipolygon buildings (web/scripts/york_relations.json, fetched
+    from OpenStreetMap): osm_id -> (outer rings largest first, inner rings)."""
+    path = Path(__file__).with_name("york_relations.json")
+    out = {}
+    for rid, rel in json.loads(path.read_text(encoding="utf-8"))["relations"].items():
+        outers = _stitch([m["coords"] for m in rel["members"] if m["role"] == "outer"])
+        inners = _stitch([m["coords"] for m in rel["members"] if m["role"] == "inner"])
+        out[int(rid)] = (sorted(outers, key=_area, reverse=True), inners)
+    return out
+
+
 def main(seed: int, results: Path, out: Path, campus: str = "york") -> None:
     p = Params()
     inst = load_york(p) if campus == "york" else generate_instance(seed=seed, params=p)
@@ -90,13 +139,24 @@ def main(seed: int, results: Path, out: Path, campus: str = "york") -> None:
         # Campus boundary (OSM "York University, Keele Campus") for the map outline.
         data["campus"] = [[round(a, 6), round(c, 6)] for a, c in metres_to_latlon(load_boundary(), YORK_MODEL_ORIGIN)]
         feet = load_footprints()
+        shapes = relation_shapes()
         for b in load_buildings():
             if b["kind"] == "ignore":
                 continue
+            entry = {"id": str(b["osm_id"]), "name": b["name"],
+                     "levels": b["levels"], "levelsKnown": b["levels_source"] != "default"}
+            if b["osm_id"] in shapes:
+                # Multipolygon buildings: the team snapshot only has their bounding box, so draw
+                # the real outline (largest outer ring, courtyards as holes; extra outer parts
+                # as their own entries).
+                outers, inners = shapes[b["osm_id"]]
+                for k, outer in enumerate(outers):
+                    holes = [h for h in inners if _inside(h[0], outer)]
+                    data["footprints"].append({**entry, "id": entry["id"] + (f"-{k}" if k else ""),
+                                               "ring": outer, **({"holes": holes} if holes else {})})
+                continue
             ring = metres_to_latlon(feet[b["osm_id"]], YORK_MODEL_ORIGIN)
-            data["footprints"].append({"id": str(b["osm_id"]), "name": b["name"],
-                                       "levels": b["levels"], "levelsKnown": b["levels_source"] != "default",
-                                       "ring": [[round(a, 6), round(c, 6)] for a, c in ring]})
+            data["footprints"].append({**entry, "ring": [[round(a, 6), round(c, 6)] for a, c in ring]})
         validation = results / "york_validation.json"
         if validation.exists():
             data["results"]["yorkValidation"] = json.loads(validation.read_text())

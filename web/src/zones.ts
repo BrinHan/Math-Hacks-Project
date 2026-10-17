@@ -38,7 +38,8 @@ function rampColour(f: number): [number, number, number] {
 }
 
 const PAD = 0.3;  // draw this share of the view beyond each edge, so panning never shows a blank strip
-const CELL = 4;   // CSS pixels per computed cell; smoothing hides the grid
+const CELL = 4;   // CSS pixels per computed cell (at least); smoothing hides the grid
+const CELL_M = 4; // ...and at least this many metres, so zooming in does not multiply the work
 
 export class ZoneLayer extends L.Layer {
   private canvas = document.createElement("canvas");
@@ -48,6 +49,7 @@ export class ZoneLayer extends L.Layer {
   private timing: ZoneTiming = { perMetreS: 1.86, emsS: 540, maxS: 540 };
   private bounds: L.LatLngBounds | null = null; // geographic extent of the last drawing (for zoom animation)
   private drawZoom = 0;                           // zoom level the last drawing was made at
+  private drawSize: L.Point | null = null;        // map size the last drawing was made for
 
   constructor(opacity = 0.55) {
     super();
@@ -68,7 +70,23 @@ export class ZoneLayer extends L.Layer {
 
   getEvents(): { [name: string]: L.LeafletEventHandlerFn } {
     // "zoom" fires on every frame of flyTo / setView animations, which send no zoomanim: follow them.
-    return { zoomanim: this.animateZoom as L.LeafletEventHandlerFn, zoom: this.follow, moveend: this.redraw, zoomend: this.redraw, resize: this.redraw, viewreset: this.redraw };
+    return {
+      zoomanim: this.animateZoom as L.LeafletEventHandlerFn, zoom: this.follow,
+      moveend: this.refresh, zoomend: this.refresh, resize: this.redraw, viewreset: this.redraw,
+    };
+  }
+
+  /** After a pan or zoom: repaint only if the zoom changed or the view left the padded drawing. */
+  private refresh() {
+    const map = this.mapRef();
+    if (!map) return;
+    const size = map.getSize();
+    if (this.bounds && map.getZoom() === this.drawZoom && size.equals(this.drawSize ?? L.point(0, 0)) &&
+        this.bounds.contains(map.getBounds())) {
+      this.follow(); // the drawing still covers the view: keep it in place
+      return;
+    }
+    this.redraw();
   }
 
   onAdd(map: L.Map) {
@@ -127,6 +145,7 @@ export class ZoneLayer extends L.Layer {
       map.containerPointToLatLng([size.x + padX, -padY]),
     );
     this.drawZoom = map.getZoom();
+    this.drawSize = size;
     const ctx = c.getContext("2d")!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -136,27 +155,41 @@ export class ZoneLayer extends L.Layer {
     };
 
     // 1. Fastest time on a coarse grid (straight-line walk to the AED and back, at the campus latitude).
-    const gw = Math.ceil(W / CELL), gh = Math.ceil(H / CELL);
+    const lat = (this.ring?.[0] ?? this.zones[0]?.at ?? map.getCenter()).lat;
+    const metresPerPx = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / (256 * 2 ** map.getZoom());
+    const cell = Math.max(CELL, CELL_M / metresPerPx);
+    const gw = Math.ceil(W / cell), gh = Math.ceil(H / cell);
     const g = this.grid;
     g.width = gw;
     g.height = gh;
     const gctx = g.getContext("2d")!;
     const img = gctx.createImageData(gw, gh);
-    const lat = (this.ring?.[0] ?? this.zones[0]?.at ?? map.getCenter()).lat;
-    const metresPerPx = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / (256 * 2 ** map.getZoom());
     const sPerPx = this.timing.perMetreS * metresPerPx;
     const limit = Math.min(this.timing.emsS, this.timing.maxS);
-    const pts = this.zones.map((z) => { const [x, y] = toCanvas(z.at); return [x, y, z.slackS] as const; });
+    // Flat arrays and squared distances: this loop runs cells x AEDs times.
+    const n = this.zones.length;
+    const px = new Float64Array(n), py = new Float64Array(n), slack = new Float64Array(n);
+    this.zones.forEach((z, i) => { [px[i], py[i]] = toCanvas(z.at); slack[i] = z.slackS / sPerPx; });
     const clipped = !!this.ring;
-    for (let gy = 0; gy < gh; gy++) {
-      const y = (gy + 0.5) * CELL;
-      for (let gx = 0; gx < gw; gx++) {
-        const x = (gx + 0.5) * CELL;
-        let t = Infinity;
-        for (const [px, py, slack] of pts) {
-          const tt = slack + sPerPx * Math.hypot(x - px, y - py);
-          if (tt < t) t = tt;
+    // With a boundary only the cells over the campus matter (the rest is clipped away anyway).
+    let gx0 = 0, gx1 = gw, gy0 = 0, gy1 = gh;
+    if (this.ring) {
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const p of this.ring) { const [x, y] = toCanvas(p); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      gx0 = Math.max(0, Math.floor(x0 / cell) - 1); gx1 = Math.min(gw, Math.ceil(x1 / cell) + 1);
+      gy0 = Math.max(0, Math.floor(y0 / cell) - 1); gy1 = Math.min(gh, Math.ceil(y1 / cell) + 1);
+    }
+    for (let gy = gy0; gy < gy1; gy++) {
+      const y = (gy + 0.5) * cell;
+      for (let gx = gx0; gx < gx1; gx++) {
+        const x = (gx + 0.5) * cell;
+        let best = Infinity; // time in "pixels walked" units
+        for (let i = 0; i < n; i++) {
+          const dx = x - px[i], dy = y - py[i];
+          const tt = slack[i] + Math.sqrt(dx * dx + dy * dy);
+          if (tt < best) best = tt;
         }
+        const t = best * sPerPx;
         const k = 4 * (gy * gw + gx);
         if (t < limit) {
           const [r, gg, b] = rampColour(t / this.timing.emsS);
@@ -179,7 +212,7 @@ export class ZoneLayer extends L.Layer {
     }
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(g, 0, 0, gw * CELL, gh * CELL);
+    ctx.drawImage(g, 0, 0, gw * cell, gh * cell);
     ctx.restore();
   }
 }
