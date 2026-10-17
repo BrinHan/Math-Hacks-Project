@@ -8,8 +8,12 @@ from aed.params import Params
 def travel_time_matrix(inst: Instance, params: Params) -> np.ndarray:
     """(I, J) seconds: tau_ij = dispatch_delay + 2 * detour * d_ij / v + floor_delay_j.
 
-    Distance is Euclidean x detour factor (fallback until OSMnx network distances).
+    Distance is inst.walk_dist_m (network metres, no detour factor) when set, else Euclidean x detour factor.
     """
-    d = np.linalg.norm(inst.cell_xy[:, None, :] - inst.site_xy[None, :, :], axis=2)
-    walk = 2.0 * params.detour_factor * d / params.walk_speed_mps
+    if inst.walk_dist_m is not None:
+        d, detour = inst.walk_dist_m, 1.0
+    else:
+        d = np.linalg.norm(inst.cell_xy[:, None, :] - inst.site_xy[None, :, :], axis=2)
+        detour = params.detour_factor
+    walk = 2.0 * detour * d / params.walk_speed_mps
     return params.dispatch_delay_s + walk + inst.site_floor_delay[None, :]
