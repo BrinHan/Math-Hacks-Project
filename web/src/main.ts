@@ -9,7 +9,7 @@ import { CITATIONS } from "./model/params";
 import type { Solution } from "./model/solvers";
 import { LeadData, leadInstance, loadLead, loadPhotos, loadYork, Photo, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
-import { Zone, ZoneLayer } from "./zones";
+import { RAMP_CSS, Zone, ZoneLayer } from "./zones";
 import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
 import {
@@ -147,9 +147,7 @@ L.control.zoom({ position: "bottomright" }).addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
 // control's on/off state persists.
 // Reach zones on one canvas, clipped to the campus; uncovered campus ground shows red.
-const ZONE_COLOURS = ["#1a9850", "#91cf60", "#fee08b", "#fc8d59"]; // ≤2, 2–4, 4–6 min, 6 min – ambulance
-const NO_AED = "#d73027";                                          // no AED before the ambulance
-const heatLayer = new ZoneLayer(ZONE_COLOURS, NO_AED, 0.45).addTo(map);
+const heatLayer = new ZoneLayer(0.55).addTo(map); // weather-style time-to-AED field, clipped to campus
 const demandLayer = L.layerGroup();                // raw demand points
 const candidateLayer = L.layerGroup();             // candidate sites without an AED
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
@@ -259,10 +257,11 @@ legend.onAdd = () => {
     `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #171717,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
   div.innerHTML =
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
-    `<div class="legend-body"><h3>AED reached and back within</h3><ul>` +
-    BANDS.map((b, k) => item(b.colour, k === BANDS.length - 1 ? "6 min – before ambulance" : b.label)).join("") +
-    item("#d73027", "No AED before the ambulance") +
-    `</ul><p class="note">Colours stop at the campus boundary.</p><hr />` +
+    `<div class="legend-body"><h3>Time to fetch an AED and return</h3>` +
+    `<div class="ramp" style="background:${RAMP_CSS}"></div>` +
+    `<div class="ramp-scale"><span>0 min</span><span>ambulance · <b id="legendEms">9 min</b></span></div>` +
+    `<ul>` + item("#d73027", "Red: no AED before the ambulance") + `</ul>` +
+    `<p class="note">Colours stop at the campus boundary.</p><hr />` +
     `<h3>AEDs</h3><ul>` +
     item(SITE.existing, "Existing", true) + item(SITE.new, "New", true) + item(SITE.locked, "Locked this period", true) +
     `</ul></div>`;
@@ -322,19 +321,16 @@ function drawMap() {
   // canvas clipped to the campus, where any ground no AED reaches in time stays red.
   const { params } = scenario(source, emsResponseS);
   const perMetre = (2 * params.detourFactor) / params.walkSpeedMps; // seconds per metre of distance
-  const edges = [...BANDS.map((b) => Math.min(b.edge, emsResponseS)), emsResponseS];
   const zones: Zone[] = [];
   for (let j = 0; j < J; j++) {
     if (!x[j] || !inst.siteOpen[j * P + q]) continue;
     const slack = params.dispatchDelayS + inst.siteFloorDelay[j];
-    const radii = ZONE_COLOURS.map((_, b) => {
-      const t = Math.min(params.maxTauS, edges[b]);
-      return t > slack ? (t - slack) / perMetre : 0;
-    });
-    zones.push({ at: L.latLng(ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1])), radii });
+    zones.push({ at: L.latLng(ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1])), slackS: slack });
   }
   const zoneRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
-  heatLayer.setData(zones, zoneRing);
+  heatLayer.setData(zones, zoneRing, { perMetreS: perMetre, emsS: emsResponseS, maxS: params.maxTauS });
+  const legendEnd = document.getElementById("legendEms");
+  if (legendEnd) legendEnd.textContent = `${(emsResponseS / 60).toFixed(emsResponseS % 60 ? 1 : 0)} min`;
   for (let i = 0; i < inst.nCells; i++) {
     const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: OUTLINE, weight: editable ? 1 : 0, fillColor: "#9e9e9e", fillOpacity: 0.85 })
       .bindTooltip("Demand point").addTo(demandLayer);
