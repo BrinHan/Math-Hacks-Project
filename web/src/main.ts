@@ -11,6 +11,7 @@ import { LeadData, leadInstance, loadLead, loadPhotos, loadYork, Photo, YorkData
 import { drawKCurve, drawTornado } from "./charts";
 import { RAMP_CSS, Zone, ZoneLayer } from "./zones";
 import { OutlineLayer } from "./outline";
+import { addTilt } from "./tilt";
 import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
 import {
@@ -132,6 +133,11 @@ const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.
 
 // ---------- map ----------
 const map = L.map("map", { preferCanvas: true, zoomControl: false, maxBoundsViscosity: 1.0, zoomSnap: 0.5 });
+// 3D view: the map leans back like Google Maps' tilt; controls and docked UI sit flat on top.
+let tiltResize = false;
+let flatBounds: L.LatLngBounds | null = null;
+const tilt = addTilt(map, () => { tiltResize = true; });
+const mapOverlay = map.getContainer().nextElementSibling as HTMLElement;
 // Esri Dark Gray Canvas (no API key): a quiet dark base, with its street labels in a pane above the
 // reach rings so names stay readable.
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
@@ -145,6 +151,35 @@ map.getPane("labels")!.style.pointerEvents = "none";
 L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 19, maxNativeZoom: 16, pane: "labels" }).addTo(map);
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 L.control.zoom({ position: "bottomright" }).addTo(map);
+// "3D" button above the zoom: extrudes the building footprints by their floor counts.
+const view3D = new L.Control({ position: "bottomright" });
+let is3D = false;
+view3D.onAdd = () => {
+  const bar = L.DomUtil.create("div", "leaflet-bar view3d");
+  const a = L.DomUtil.create("a", "", bar) as HTMLAnchorElement;
+  a.href = "#"; a.role = "button"; a.textContent = "3D"; a.title = "Tilt the map and show buildings in 3D";
+  a.setAttribute("aria-pressed", "false");
+  L.DomEvent.disableClickPropagation(bar);
+  L.DomEvent.on(a, "click", (e) => {
+    L.DomEvent.preventDefault(e);
+    is3D = !is3D;
+    a.classList.toggle("on", is3D);
+    a.setAttribute("aria-pressed", String(is3D));
+    a.title = is3D ? "Back to the flat map" : "Tilt the map and show buildings in 3D";
+    buildingLayer.set3D(is3D);
+    // The tilted view shows more ground than the flat pan limits allow, so lift them while tilted.
+    if (is3D) { flatBounds = (map.options.maxBounds as L.LatLngBounds | undefined) ?? null; map.setMaxBounds(undefined as unknown as L.LatLngBounds); }
+    tilt.set(is3D);
+    if (!is3D && flatBounds) setTimeout(() => { if (!tilt.on && flatBounds) map.setMaxBounds(flatBounds); }, 700);
+    if (is3D && !map.hasLayer(buildingLayer)) {
+      buildingLayer.addTo(map);
+      const box = [...document.querySelectorAll<HTMLInputElement>("#layersField input")].find((i) => i.parentElement?.textContent?.includes("Building"));
+      if (box) box.checked = true;
+    }
+  });
+  return bar;
+};
+view3D.addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
 // control's on/off state persists.
 // Reach zones on one canvas, clipped to the campus; uncovered campus ground shows red.
@@ -155,7 +190,10 @@ const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
 // Outlines repaint every frame, so they stay crisp while the map glides (vector canvas layers were
 // stretched mid-animation and snapped back afterwards).
-const buildingLayer = new OutlineLayer({ stroke: "#8a8a8a", width: 1, alpha: 0.7, fill: "#ededed", fillAlpha: 0.05 }).addTo(map);
+const buildingLayer = new OutlineLayer({
+  stroke: "#d4d4d4", width: 1.5, alpha: 0.9, fill: "#ffffff", fillAlpha: 0.16,
+  halo: { stroke: "#000000", width: 3.5, alpha: 0.45 },
+}).addTo(map);
 const campusLayer = new OutlineLayer({
   stroke: "#f5f5f5", width: 2.5, alpha: 0.95, dash: [10, 7],
   halo: { stroke: "#000000", width: 6, alpha: 0.35 },
@@ -237,6 +275,7 @@ new ResizeObserver(([entry]) => {
   const size = `${Math.round(width)}x${Math.round(height)}`;
   if (size === lastSize) return; // ignore no-op notifications so a fly-to is never cancelled
   lastSize = size;
+  if (tiltResize || tilt.on) { tiltResize = false; return; } // tilting resizes the map on purpose
   lockToData();
 }).observe(document.getElementById("map")!);
 
@@ -308,7 +347,8 @@ function drawMap() {
   const campusRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
   campusLayer.setRings(campusRing?.length ? [campusRing] : []);
   const footprints = source.kind === "lead" ? lead?.footprints : source.kind === "york" ? york?.footprints : undefined;
-  buildingLayer.setRings((footprints ?? []).map((fp) => fp.ring));
+  // Heights for 3D: OSM floor counts at about 3.5 m a floor (buildings without one count as 2 floors).
+  buildingLayer.setRings((footprints ?? []).map((fp) => fp.ring), (footprints ?? []).map((fp) => 3.5 * ((fp as { levels?: number }).levels || 2)));
   dropSoloPin(); // its marker is about to be replaced
   markers.clear();
 
@@ -549,7 +589,7 @@ editControl.onAdd = () => {
   return div;
 };
 editControl.addTo(map);
-const toolHint = L.DomUtil.create("div", "tool-hint", map.getContainer());
+const toolHint = L.DomUtil.create("div", "tool-hint", mapOverlay);
 toolHint.hidden = true;
 
 function setTool(t: Tool) {
@@ -623,7 +663,7 @@ function wireSite(m: L.Marker, j: number, selectable: boolean) {
 // Editor popups pan into view (with room for the controls) instead of being clipped at the map edge.
 // The editor is a panel docked in the map corner (never clipped by the map edge), with a dashed ring
 // on the item being edited.
-const inspector = L.DomUtil.create("div", "inspector", map.getContainer());
+const inspector = L.DomUtil.create("div", "inspector", mapOverlay);
 inspector.hidden = true;
 L.DomEvent.disableClickPropagation(inspector);
 L.DomEvent.disableScrollPropagation(inspector);

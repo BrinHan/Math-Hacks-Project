@@ -23,7 +23,7 @@ export interface LeadData {
     originLatLon: [number, number]; nCells: number; nSites: number; cellSizeM: number;
     walkDistM?: number[]; siteName?: string[];
   };
-  footprints?: { id: string; name?: string; ring: [number, number][] }[];
+  footprints?: { id: string; name?: string; ring: [number, number][]; levels?: number; levelsKnown?: boolean }[];
   campus?: [number, number][]; // campus boundary (lat, lon), for the map outline
   results: {
     kCurve: KCurveRow[];

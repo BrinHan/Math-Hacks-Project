@@ -95,6 +95,7 @@ def main(seed: int, results: Path, out: Path, campus: str = "york") -> None:
                 continue
             ring = metres_to_latlon(feet[b["osm_id"]], YORK_MODEL_ORIGIN)
             data["footprints"].append({"id": str(b["osm_id"]), "name": b["name"],
+                                       "levels": b["levels"], "levelsKnown": b["levels_source"] != "default",
                                        "ring": [[round(a, 6), round(c, 6)] for a, c in ring]})
         validation = results / "york_validation.json"
         if validation.exists():

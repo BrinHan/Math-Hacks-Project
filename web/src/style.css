@@ -720,3 +720,30 @@ body:not(.panel-open) .panel { bottom: calc(100vh - var(--top) - var(--gap) - 58
 .sel-ring { border: 2.5px solid #ededed; border-radius: 50%; background: rgb(237 237 237 / 0.12); box-sizing: border-box; animation: ring-pulse 1.6s ease-out infinite; }
 .edit-ring { border: 2px dashed #ededed; border-radius: 50%; box-sizing: border-box; }
 @keyframes ring-pulse { 0% { opacity: 1; } 70%, 100% { opacity: 0.35; } }
+
+/* 3D buildings toggle, stacked above the zoom buttons. */
+.view3d a { font-size: 14px !important; font-weight: 700; letter-spacing: 0.02em; border-bottom: 0 !important; }
+.view3d a.on { background: var(--accent, #e53935) !important; color: #ffffff !important; }
+
+/* Tilted 3D view (src/tilt.ts). The map is enlarged (twice the visible height, 1.8x the width) and
+   leaned back around its bottom edge; the start state is shifted so the view does not jump. */
+#map { transform-origin: 50% 100%; }
+#map.tilt-big {
+  top: calc(2 * var(--top) - 100vh); left: -40vw; right: -40vw;
+  transform: perspective(1500px) translateY(25%) rotateX(0deg);
+  transition: transform 0.6s var(--spring, ease);
+}
+#map.tilt-big.tilted { transform: perspective(1500px) translateY(0) rotateX(40deg); }
+.map-overlay {
+  position: fixed; inset: var(--top) 0 0 0; z-index: 1; pointer-events: none;
+  background: transparent !important; overflow: hidden;
+}
+.map-overlay .inspector { pointer-events: auto; }
+/* Haze over the far distance, like the horizon in Google Maps' tilt. */
+.map-overlay::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 34%; pointer-events: none;
+  background: linear-gradient(#171717 0%, #171717 18%, rgb(23 23 23 / 0) 100%);
+  opacity: 0; transition: opacity 0.6s;
+}
+.map-overlay.tilted::before { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { #map.tilt-big, .map-overlay::before { transition: none; } }

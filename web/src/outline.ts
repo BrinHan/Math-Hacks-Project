@@ -15,12 +15,17 @@ export interface OutlineStyle {
 }
 
 const PANE = "outlines";
+const LIGHT = [-0.6, -0.8]; // light from the upper left (screen x, y), for wall shading
+/** Height drawn per metre: under 1 so the oblique view does not hide too much of the map. */
+const TILT = 0.75;
 
 export class OutlineLayer extends L.Layer {
   private canvas = document.createElement("canvas");
   private rings: L.LatLng[][] = [];
   private bounds: L.LatLngBounds | null = null;
   private drawZoom = 0;
+  private heights: number[] = []; // metres, per ring (3D mode)
+  private extrude = false;
 
   constructor(private style: OutlineStyle) {
     super();
@@ -29,8 +34,17 @@ export class OutlineLayer extends L.Layer {
     this.canvas.style.transformOrigin = "0 0";
   }
 
-  setRings(rings: [number, number][][]) {
+  setRings(rings: [number, number][][], heightsM: number[] = []) {
     this.rings = rings.map((r) => r.map(([a, b]) => L.latLng(a, b)));
+    this.heights = heightsM;
+    this.redraw();
+    return this;
+  }
+
+  /** 2.5D: extrude each ring upward by its height (Leaflet cannot tilt the camera, so the view stays
+   * top-down and buildings lean north like an oblique aerial photo). */
+  set3D(on: boolean) {
+    this.extrude = on;
     this.redraw();
     return this;
   }
@@ -103,6 +117,7 @@ export class OutlineLayer extends L.Layer {
       }
     };
     const s = this.style;
+    if (this.extrude && this.heights.length) { this.drawExtruded(ctx, map, pad); return; }
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     path();
@@ -113,6 +128,52 @@ export class OutlineLayer extends L.Layer {
     }
     ctx.setLineDash(s.dash ?? []);
     ctx.globalAlpha = s.alpha ?? 1; ctx.strokeStyle = s.stroke; ctx.lineWidth = s.width; ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  private drawExtruded(ctx: CanvasRenderingContext2D, map: L.Map, pad: number) {
+    const lat = map.getCenter().lat;
+    const mPerPx = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / 2 ** (map.getZoom() + 8);
+    const items = this.rings.map((ring, i) => {
+      const pts = ring.map((p) => { const q = map.latLngToContainerPoint(p); return [q.x + pad, q.y + pad]; });
+      return { pts, lift: ((this.heights[i] ?? 7) / mPerPx) * TILT, ymax: Math.max(...pts.map((p) => p[1])) };
+    });
+    // Paint far (north, higher on screen) to near, so nearer buildings cover the ones behind.
+    items.sort((a, b) => a.ymax - b.ymax);
+    ctx.lineJoin = "round";
+    ctx.setLineDash([]);
+    for (const { pts, lift } of items) {
+      const n = pts.length;
+      let area = 0;
+      for (let k = 0; k < n; k++) { const [x1, y1] = pts[k], [x2, y2] = pts[(k + 1) % n]; area += x1 * y2 - x2 * y1; }
+      const sign = Math.sign(area) || 1;
+      // Footprint shadow on the ground.
+      ctx.beginPath();
+      pts.forEach(([x, y], k) => (k ? ctx.lineTo(x + lift * 0.35, y + lift * 0.1) : ctx.moveTo(x + lift * 0.35, y + lift * 0.1)));
+      ctx.closePath();
+      ctx.globalAlpha = 0.35; ctx.fillStyle = "#000000"; ctx.fill();
+      // Walls facing the viewer (outward normal pointing down the screen), shaded by orientation.
+      for (let k = 0; k < n; k++) {
+        const [x1, y1] = pts[k], [x2, y2] = pts[(k + 1) % n];
+        const len = Math.hypot(x2 - x1, y2 - y1);
+        if (len < 0.01) continue;
+        const nx = (sign * (y2 - y1)) / len, ny = (sign * -(x2 - x1)) / len;
+        if (ny <= 0) continue;
+        const lit = 0.5 + 0.5 * -(nx * LIGHT[0] + ny * LIGHT[1]); // 0 (shade) .. 1 (lit)
+        const v = Math.round(70 + 80 * lit);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - lift); ctx.lineTo(x1, y1 - lift);
+        ctx.closePath();
+        ctx.globalAlpha = 0.92; ctx.fillStyle = `rgb(${v},${v},${v + 8})`; ctx.fill();
+        ctx.lineWidth = 0.6; ctx.strokeStyle = "#1a1a1a"; ctx.globalAlpha = 0.5; ctx.stroke();
+      }
+      // Roof.
+      ctx.beginPath();
+      pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y - lift) : ctx.moveTo(x, y - lift)));
+      ctx.closePath();
+      ctx.globalAlpha = 0.9; ctx.fillStyle = "#c9ccd1"; ctx.fill();
+      ctx.globalAlpha = 1; ctx.lineWidth = 1; ctx.strokeStyle = "#f2f2f2"; ctx.stroke();
+    }
     ctx.globalAlpha = 1;
   }
 }
