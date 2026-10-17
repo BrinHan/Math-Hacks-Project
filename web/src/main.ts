@@ -174,7 +174,10 @@ const LAYERS: [string, L.Layer][] = [
   for (const [label, layer] of LAYERS) {
     const row = document.createElement("label");
     const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: map.hasLayer(layer) });
-    box.addEventListener("change", () => (box.checked ? layer.addTo(map) : layer.remove()));
+    box.addEventListener("change", () => {
+      if (box.checked) layer.addTo(map); else layer.remove();
+      drawSelection(); // a selected site stays visible even if its layer was just hidden
+    });
     row.append(box, document.createTextNode(label));
     list.append(row);
   }
@@ -314,6 +317,7 @@ function drawMap() {
       L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false }).addTo(buildingLayer);
     }
   }
+  dropSoloPin(); // its marker is about to be replaced
   markers.clear();
 
   // Reach zones: for every AED that is open now, rings in real metres showing how far a bystander can
@@ -343,17 +347,18 @@ function drawMap() {
     const forced = inst.siteForced?.[j] === 1;
     if (x[j]) {
       const role = inst.siteExisting[j] ? "existing" : "new";
-      const m = L.circleMarker(pos, {
-        radius: MARKER_R, fillOpacity: 1, fillColor: open ? SITE[role] : SITE.locked,
-        // Must-include sites get a dashed white outline so they read as a planner's pin.
-        color: forced ? MUST : OUTLINE, weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
+      // DOM pins keep their pixel size while the map zooms (canvas dots were scaled mid-zoom).
+      const m = L.marker(pos, {
+        icon: pinIcon(open ? SITE[role] : SITE.locked, 2 * MARKER_R, forced),
+        keyboard: false, riseOnHover: true,
       }).bindTooltip(`<b>${name(j)}</b> · ${role === "new" ? (forced ? "Must-include" : "Recommended") : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
         .addTo(role === "existing" ? existingLayer : newLayer);
       markers.set(j, m);
       wireSite(m, j, true);
     } else {
-      const m = L.circleMarker(pos, {
-        radius: editable ? 4.5 : 3, color: OUTLINE, weight: 1, fillColor: "#9e9e9e", fillOpacity: open ? 0.9 : 0.35,
+      const m = L.marker(pos, {
+        icon: pinIcon("#9e9e9e", editable ? 9 : 6, false, open ? 0.9 : 0.35),
+        keyboard: false,
       }).bindTooltip(`${name(j)} · candidate<br>${cap(inst.siteKind[j])}`).addTo(candidateLayer);
       wireSite(m, j, false);
     }
@@ -372,7 +377,19 @@ function drawMap() {
 
 // ---------- selection (table row <-> map marker) ----------
 const MARKER_R = 7;
-const markers = new Map<number, L.CircleMarker>();
+const markers = new Map<number, L.Marker>();
+/** A round AED pin drawn as a DOM element, so its size stays fixed in pixels at every zoom. */
+function pinIcon(fill: string, size: number, forced = false, opacity = 1) {
+  return L.divIcon({
+    className: "aed-pin",
+    iconSize: [size, size],
+    html: `<span class="dot${forced ? " forced" : ""}" style="background:${fill};opacity:${opacity}"></span>`,
+  });
+}
+/** A ring drawn as a DOM element under the pins (fixed size while zooming, like the pins). */
+function ringIcon(cls: string, size: number) {
+  return L.divIcon({ className: cls, iconSize: [size, size], html: "" });
+}
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 // The ring lives in its own SVG pane above the canvas overlay so it can carry a CSS class
 // and is never painted over by cells or markers.
@@ -380,18 +397,25 @@ map.createPane("selection");
 map.getPane("selection")!.style.zIndex = "460";
 map.getPane("selection")!.style.pointerEvents = "none";
 const ringRenderer = L.svg({ padding: 0.5, pane: "selection" });
-let ring: L.CircleMarker | null = null;
+let ring: L.Marker | null = null;
+// A selected site whose layer is switched off in Map details is still shown on its own, so the ring
+// never circles an empty spot.
+let soloPin: L.Marker | null = null;
+function dropSoloPin() {
+  if (soloPin && !map.hasLayer(existingLayer.hasLayer(soloPin) ? existingLayer : newLayer)) soloPin.remove();
+  soloPin = null;
+}
 
 function drawSelection() {
   ring?.remove();
   ring = null;
+  dropSoloPin();
   const m = state.selected === null ? undefined : markers.get(state.selected);
   if (!m) return;
-  ring = L.circleMarker(m.getLatLng(), {
-    renderer: ringRenderer, pane: "selection", radius: 13, color: ACCENT, weight: 2.5,
-    fill: true, fillColor: ACCENT, fillOpacity: 0.12, interactive: false, className: "sel-ring",
-  }).addTo(map);
-  m.bringToFront();
+  if (!map.hasLayer(m)) { m.addTo(map); soloPin = m; }
+  ring = L.marker(m.getLatLng(), { icon: ringIcon("sel-ring", 30), interactive: false, keyboard: false, pane: "shadowPane" }).addTo(map);
+  markers.forEach((mk) => mk.setZIndexOffset(0));
+  m.setZIndexOffset(1000);
 }
 
 /** Expand a site in the list (or fold it if it is already open) and ring it on the map. */
@@ -429,8 +453,10 @@ function flyToSite(at: L.LatLng) {
 }
 
 function hoverSite(j: number | null) {
-  markers.forEach((m, k) => m.setRadius(k === j ? MARKER_R + 3 : MARKER_R));
-  if (j !== null) markers.get(j)?.bringToFront();
+  markers.forEach((m, k) => {
+    m.getElement()?.classList.toggle("hover", k === j);
+    m.setZIndexOffset(k === j ? 2000 : k === state.selected ? 1000 : 0);
+  });
 }
 
 // ---------- custom data: commit, tools, editors ----------
@@ -564,7 +590,7 @@ map.on("click", (e: L.LeafletMouseEvent) => {
 
 // Drag a site marker to move it (custom data, select tool). A press without movement is a click.
 let dragJustEnded = false;
-function wireSite(m: L.CircleMarker, j: number, selectable: boolean) {
+function wireSite(m: L.Marker, j: number, selectable: boolean) {
   m.on("click", (e) => {
     L.DomEvent.stop(e);
     if (dragJustEnded) { dragJustEnded = false; return; }
@@ -609,7 +635,7 @@ const inspector = L.DomUtil.create("div", "inspector", map.getContainer());
 inspector.hidden = true;
 L.DomEvent.disableClickPropagation(inspector);
 L.DomEvent.disableScrollPropagation(inspector);
-let editRing: L.CircleMarker | null = null;
+let editRing: L.Marker | null = null;
 
 function showInspector(content: HTMLElement, at: L.LatLngExpression) {
   const close = Object.assign(document.createElement("button"), { type: "button", className: "icon-btn insp-close", ariaLabel: "Close editor" });
@@ -618,10 +644,7 @@ function showInspector(content: HTMLElement, at: L.LatLngExpression) {
   inspector.replaceChildren(close, content);
   inspector.hidden = false;
   editRing?.remove();
-  editRing = L.circleMarker(at, {
-    renderer: ringRenderer, pane: "selection", radius: 12, color: "#ededed", weight: 2, dashArray: "4 3",
-    fill: false, interactive: false,
-  }).addTo(map);
+  editRing = L.marker(at, { icon: ringIcon("edit-ring", 28), interactive: false, keyboard: false, pane: "shadowPane" }).addTo(map);
   // Bring the edited item into view if the panel or an edge hides it: shift the map so the item sits
   // left of the panel.
   const animate = !document.hidden && !reducedMotion.matches;

@@ -705,3 +705,16 @@ body:not(.panel-open) .panel { bottom: calc(100vh - var(--top) - var(--gap) - 58
 /* App logo in the panel header */
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand-logo { flex: none; width: 32px; height: 32px; border-radius: 8px; display: block; }
+
+/* AED pins as DOM elements: fixed pixel size at every zoom, sliding into place during zoom animations. */
+.aed-pin { background: none; border: 0; }
+.aed-pin .dot {
+  display: block; width: 100%; height: 100%; border-radius: 50%;
+  box-shadow: 0 0 0 2px #171717, 0 1px 3px rgb(0 0 0 / 0.5);
+  transition: transform 0.15s ease-out;
+}
+.aed-pin .dot.forced { box-shadow: 0 0 0 2px #171717; outline: 2.5px dashed #f9ab00; outline-offset: 1px; }
+.aed-pin.hover .dot, .aed-pin:hover .dot { transform: scale(1.4); }
+.sel-ring { border: 2.5px solid #ededed; border-radius: 50%; background: rgb(237 237 237 / 0.12); box-sizing: border-box; animation: ring-pulse 1.6s ease-out infinite; }
+.edit-ring { border: 2px dashed #ededed; border-radius: 50%; box-sizing: border-box; }
+@keyframes ring-pulse { 0% { opacity: 1; } 70%, 100% { opacity: 0.35; } }
