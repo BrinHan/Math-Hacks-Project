@@ -17,7 +17,7 @@ paywalls were not read; every figure below comes from the abstract or page named
 
 | Parameter | Old | New | Why |
 |---|---|---|---|
-| `survival_k_per_min` range | (0.03, 0.10) | (0.03, 0.12) | The base 0.10 sat on the upper edge of its range. Waalewijn et al. (source 5) report odds ratios of 0.85-0.89 per minute of delay to defibrillation, which correspond to rates of about 0.12-0.16 per minute, and Larsen et al. imply about 0.08. An upper bound of 0.12 is supported and puts the base inside the range. Base value unchanged (0.10). |
+| `survival_k_per_min` range | (0.03, 0.10) | (0.03, 0.12) | The base 0.10 sat on the upper edge of its range. Waalewijn et al. (source 5) report odds ratios of 0.85-0.89 per minute of delay to defibrillation, which correspond to rates of about 0.12-0.16 per minute, and Larsen et al. imply about 0.08. 0.12 is at the lower end of the OR-implied 0.12-0.16 and above Larsen's 0.08 (the OR-based rates are not directly comparable); it puts the base inside the range. Base value unchanged (0.10). |
 
 No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
 `public_fraction` (0.18) are unchanged and sit inside ranges the sources support.
@@ -32,7 +32,8 @@ No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
    Supports `incidence_per_100k_yr`. Figures: treated OHCA incidence per 100,000
    person-years of 54.6 (North America), 44.0 (Australia), 35.0 (Europe), 28.3
    (Asia); adult-only studies 62.3 vs 34.7 when children are included. Base 55
-   matches North America; range 40-70 spans the regional values.
+   matches North America; range 40-70 covers North America (54.6), Australia (44.0) and
+   adult-only studies (62.3); Europe (35.0) and Asia (28.3) fall below it.
 
 2. Nichol G, Thomas E, Callaway CW, et al. (2008). Regional variation in
    out-of-hospital cardiac arrest incidence and outcome. *JAMA* 300(12):1423-1431.
@@ -175,7 +176,7 @@ No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
 | `walk_speed_mps` | 1.4 | 1.2-2.0 | 8, 9 | comfortable 1.27-1.46 m/s; brisk 4 mph = 1.79; max 1.75-2.53 |
 | `detour_factor` | 1.3 | 1.2-1.5 | 10 | walking circuity mean 1.27, range 1.14-1.49 over 40 US cities |
 | `dispatch_delay_s` | 60 | 30-120 | none | ASSUMPTION (below) |
-| `ems_response_s` | 540 | 420-720 | 11, 12, 7 (14) | median EMS response 7.6 min (CARES), 7 min (Mell); paramedics about 9.8 min after collapse (casinos) |
+| `ems_response_s` | 540 | 420-720 | 11, 12, 7 (14) | median EMS response 7.6 min (CARES), 7 min (Mell); paramedics about 9.8 min after collapse (casinos). High end 720 s assumes an urban/suburban campus: it excludes the rural median of 13 min (Mell) |
 | `survival_S0` | 0.7 | 0.5-0.8 | 7, 6 | 74% shock within 3 min; 67% baseline |
 | `survival_k_per_min` | 0.10 | 0.03-0.12 | 6, 5, 11 | about 0.08 (Larsen, derived); odds x0.85-0.89 per min; registry 7-10% |
 
@@ -236,3 +237,11 @@ open input.
   rhythms. Multiplying S0 by the shockable share (about 0.26 public overall, 0.6 for
   bystander-witnessed public arrests) before applying time decay would be the
   consistent way to compare model output with these overall rates.
+
+## Range ends that are judgement, not sourced
+
+- `public_fraction` high end 0.25 (Fordyce 2017 reports 32.3% in some North Carolina counties).
+- `survival_S0` high end 0.8 (highest cited figure is 74%).
+- `walk_speed_mps` high end 2.0 m/s (between brisk walking, 1.79, and maximum speed).
+- `survival_k_per_min` low end 0.03 (bystander-CPR figure not opened from a primary source).
+- Derived figures (arithmetic on the sources): about 14% public (Chan), 0.08/min and 8%/min (Larsen), 1.79 m/s (4 mph), circuity mean 1.27 (Boeing Table 1).

@@ -114,7 +114,7 @@ CITATIONS: dict[str, str] = {
         "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=TITLE%3A%22Ventricular%20tachyarrhythmias%20after%20cardiac%20arrest%20in%20public%20versus%20at%20home%22&resultType=core&format=json"
         ": initial VF/pVT in public arrests 38% (EMS-witnessed) to 60% (bystander-witnessed); "
         "Fordyce et al. (2017), JAMA Cardiol 2(11):1226-1235. https://pmc.ncbi.nlm.nih.gov/articles/PMC5710360"
-        ": 26.5% of all public arrests. Base 0.40 = AED-relevant (witnessed) public arrests, range 0.26-0.60."
+        ": 26.5% of all public arrests. Base 0.40 is a judgement near the 38% EMS-witnessed public figure, between 26.5% (all public) and 60% (bystander-witnessed); 79% (bystander AED applied) lies above the range."
     ),
     "survival_form": "ASSUMPTION: exponential decay; linear offered as a sensitivity check.",
     "band_edges_s": "ASSUMPTION: 1-minute time bands up to 10 minutes.",
