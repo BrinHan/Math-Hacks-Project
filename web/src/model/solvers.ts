@@ -15,7 +15,9 @@ export interface Solution {
 /** Lazy greedy on marginal gain per unit cost (>= 1 - 1/e of optimal for unit costs). */
 export function solveGreedy(cov: Coverage, budget: number): Solution {
   const t0 = performance.now();
-  const x = Uint8Array.from(cov.siteExisting);
+  const { fixed, forcedCost } = fixedSites(cov);
+  const x = fixed;
+  budget -= forcedCost;
   const covered = coveredRows(cov, x);
   const gain = (j: number) => {
     let g = 0;
@@ -67,12 +69,25 @@ export function solveGreedy(cov: Coverage, budget: number): Solution {
   return { x, lives: evaluate(cov, x), method: "greedy", runtimeS: (performance.now() - t0) / 1000 };
 }
 
+/** Sites switched on before optimizing: existing AEDs (free) and must-include sites (paid). */
+export function fixedSites(cov: Coverage): { fixed: Uint8Array; forcedCost: number } {
+  const fixed = Uint8Array.from(cov.siteExisting);
+  let forcedCost = 0;
+  if (cov.siteForced) {
+    for (let j = 0; j < cov.nSites; j++) {
+      if (cov.siteForced[j] && !fixed[j]) { fixed[j] = 1; forcedCost += cov.siteCost[j]; }
+    }
+  }
+  return { fixed, forcedCost };
+}
+
 /**
- * Gradual-cover MCLP as a MIP for HiGHS (CPLEX LP text). Existing AEDs are fixed on, so rows they
- * already cover are constant and dropped; z_r <= sum of the remaining sites in row r.
+ * Gradual-cover MCLP as a MIP for HiGHS (CPLEX LP text). Fixed sites (existing + must-include) are
+ * on, so rows they already cover are constant and dropped; z_r <= sum of the remaining sites in row r.
+ * `budget` is what is left for free choices after paying for must-include sites.
  */
-export function buildIlpLp(cov: Coverage, budget: number): { lp: string; sites: number[] } | null {
-  const covered = coveredRows(cov, cov.siteExisting);
+export function buildIlpLp(cov: Coverage, budget: number, fixed: Uint8Array = cov.siteExisting): { lp: string; sites: number[] } | null {
+  const covered = coveredRows(cov, fixed);
   const used = new Uint8Array(cov.nSites);
   const rows: number[] = [];
   for (let r = 0; r < cov.nRows; r++) {
@@ -81,7 +96,7 @@ export function buildIlpLp(cov: Coverage, budget: number): { lp: string; sites: 
     for (let n = cov.rowPtr[r]; n < cov.rowPtr[r + 1]; n++) used[cov.rowSites[n]] = 1;
   }
   const sites: number[] = [];
-  for (let j = 0; j < cov.nSites; j++) if (used[j] && cov.siteCost[j] <= budget + 1e-12) sites.push(j);
+  for (let j = 0; j < cov.nSites; j++) if (used[j] && !fixed[j] && cov.siteCost[j] <= budget + 1e-12) sites.push(j);
   if (!rows.length || !sites.length) return null;
   const keep = new Uint8Array(cov.nSites);
   for (const j of sites) keep[j] = 1;
@@ -108,8 +123,12 @@ export function buildIlpLp(cov: Coverage, budget: number): { lp: string; sites: 
 
 export function solveIlp(highs: Highs, cov: Coverage, budget: number, timeLimitS = 60): Solution {
   const t0 = performance.now();
-  const x = Uint8Array.from(cov.siteExisting);
-  const model = buildIlpLp(cov, budget);
+  const { fixed, forcedCost } = fixedSites(cov);
+  if (forcedCost > budget + 1e-9) {
+    throw new Error(`must-include sites cost ${forcedCost} but the budget is ${budget}`);
+  }
+  const x = Uint8Array.from(fixed);
+  const model = buildIlpLp(cov, budget - forcedCost, fixed);
   let status = "Optimal";
   if (model) {
     const res = highs.solve(model.lp, { time_limit: timeLimitS, mip_rel_gap: 1e-4, presolve: "on" });

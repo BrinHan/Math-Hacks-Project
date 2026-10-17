@@ -1,16 +1,20 @@
-// AED placement demo (Plan 3): budget slider, solver choice, time-of-day selector, Leaflet map.
+// AED placement demo (Plan 3): budget slider, ambulance time, time-of-day selector, Leaflet map.
 // One placement serves every period (spec section 5); switching period never re-optimizes.
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./style.css";
-import { evaluate, evaluateByPeriod } from "./model/coverage";
+import { evaluate } from "./model/coverage";
 import { metresToLatLon } from "./model/instance";
 import { CITATIONS } from "./model/params";
-import { Solution, solveGreedy } from "./model/solvers";
-import { LeadData, leadInstance, loadLead } from "./data";
+import type { Solution } from "./model/solvers";
+import { LeadData, leadInstance, loadLead, loadYork, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
-import { scenario, setLeadInstance, Source } from "./scenario";
+import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
+import {
+  CustomDataset, datasetFromInstance, datasetToInstance, KINDS, loadDataset, newId, saveDataset,
+} from "./custom/dataset";
+import { initUpload, ImportResult } from "./custom/upload";
 
 // Fastest-AED bands on the map (seconds); anything at or past EMS arrival is "unreached".
 const BANDS = [
@@ -20,39 +24,54 @@ const BANDS = [
   { edge: Infinity, colour: "#fc8d59", label: "6 min – EMS" },
 ];
 const UNREACHED = "#d73027";
-const ACCENT = "#2dd4bf"; // teal: selection, active states and primary actions only
-const SITE = { existing: "#60a5fa", new: "#f4f4f5", locked: "#52525b" };
+const ACCENT = "#1a73e8"; // Google blue: selection, active states and primary actions only
+// Recommended AEDs are dark so they never read as a time band; existing ones are blue.
+const SITE = { existing: "#1a73e8", new: "#202124", locked: "#9aa0a6" };
+const MUST = "#f9ab00"; // dashed outline on must-include sites
 // Muted, low-chroma tags so building type reads as metadata, not as another status colour.
 const KIND_COLOURS: Record<string, string> = {
   academic: "#9a8fbf", library: "#7f9fbf", residential: "#86a88f",
   athletic: "#b8a37a", dining: "#b8917a", outdoor: "#a3a3a3",
 };
 const PERIOD_NAMES: Record<string, string> = { day: "Day", evening: "Evening", night: "Night" };
+const PERIOD_HOURS_TEXT: Record<string, string> = { day: "8am–6pm", evening: "6pm–midnight", night: "midnight–8am" };
+const svg = (d: string, size = 18) =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+// Sun, sun on the horizon (dusk), crescent moon.
+const PERIOD_ICON_PATHS: Record<string, string> = {
+  day: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  evening: '<path d="M7 18a5 5 0 0 1 10 0"/><path d="M2 18h20M12 6v3M4.6 10.6l1.6 1.6M19.4 10.6l-1.6 1.6M6 22h12"/>',
+  night: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+};
+const periodIcon = (p: string, size?: number) => svg(PERIOD_ICON_PATHS[p] ?? PERIOD_ICON_PATHS.day, size);
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const ui = {
-  seed: $<HTMLInputElement>("seed"),
   budget: $<HTMLInputElement>("budget"),
   budgetOut: $<HTMLOutputElement>("budgetOut"),
   ems: $<HTMLInputElement>("ems"),
   emsOut: $<HTMLOutputElement>("emsOut"),
   periods: $("periods"),
-  candidates: $<HTMLInputElement>("candidates"),
-  metrics: $("metrics"),
-  bars: $("bars"),
+  uploadBtn: $<HTMLButtonElement>("uploadBtn"),
+  copyBtn: $<HTMLButtonElement>("copyBtn"),
+  clearBtn: $<HTMLButtonElement>("clearBtn"),
+  arrestsField: $("arrestsField"),
+  arrests: $<HTMLInputElement>("arrests"),
   sites: $<HTMLTableElement>("sites"),
   params: $<HTMLTableElement>("params"),
   busy: $("busy"),
   busyText: $("busyText"),
   siteCount: $("siteCount"),
-  seedField: $("seedField"),
+  datasetSeg: $("datasetSeg"),
+  customOpt: $("customOpt"),
+  yorkOpt: $("yorkOpt"),
   datasetNote: $("datasetNote"),
   charts: $("charts"),
   kcurve: $("kcurve"),
   tornado: $("tornado"),
 };
 
-type SortKey = "site" | "kind" | "open" | "freq" | "lat";
+type SortKey = "site" | "open" | "freq";
 const state = {
   period: 0,
   solution: null as Solution | null,
@@ -63,41 +82,127 @@ const solveCache = new Map<string, Solution>();
 
 let lead: LeadData | null = null; // the lead's exported campus + results, if present
 
-const settings = () => ({
-  source: (lead && document.querySelector<HTMLInputElement>("input[name=dataset]:checked")?.value === "lead"
-    ? { kind: "lead" }
-    : { kind: "synthetic", seed: Math.max(0, Math.floor(Number(ui.seed.value) || 0)) }) as Source,
-  budget: Number(ui.budget.value),
-  emsResponseS: Number(ui.ems.value) * 60,
-  method: (document.querySelector<HTMLInputElement>("input[name=solver]:checked")!.value) as "ilp" | "greedy",
-});
+// Uploaded or drawn locations. Every edit bumps `customVer`, which keys the scenario and solve caches.
+let custom: CustomDataset | null = loadDataset();
+// York University's real buildings from OpenStreetMap, if the export is present.
+let york: YorkData | null = null;
+let customVer = 0;
+
+const datasetChoice = () => document.querySelector<HTMLInputElement>("input[name=dataset]:checked")?.value;
+const settings = () => {
+  const c = datasetChoice();
+  const source: Source = c === "lead" && lead ? { kind: "lead" }
+    : c === "york" && york ? { kind: "york" }
+    : c === "custom" && custom ? { kind: "custom", version: customVer }
+    : lead ? { kind: "lead" }
+    // No team export: the app's placeholder campus keeps the page usable.
+    : { kind: "synthetic", seed: 0 };
+  return { source, budget: Number(ui.budget.value), emsResponseS: Number(ui.ems.value) * 60 };
+};
+const isCustom = () => settings().source.kind === "custom";
+const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 // ---------- map ----------
-const map = L.map("map", { preferCanvas: true, zoomControl: true, maxBoundsViscosity: 1.0 });
-// Esri Dark Gray Canvas (no API key): a muted base under the overlay, labels on top of it.
-const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
-const tileOpts = { maxZoom: 19, maxNativeZoom: 16 };
-L.tileLayer(`${ESRI}/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
-  ...tileOpts,
+const map = L.map("map", { preferCanvas: true, zoomControl: false, maxBoundsViscosity: 1.0 });
+// Esri World Street Map (no API key): a familiar, Google-like street base under the overlay.
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, maxNativeZoom: 18,
   attribution: '&copy; Esri &middot; &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
-map.createPane("labels");
-map.getPane("labels")!.style.zIndex = "450"; // above the cell overlay, below markers
-map.getPane("labels")!.style.pointerEvents = "none";
-L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { ...tileOpts, pane: "labels" }).addTo(map);
-const cellLayer = L.layerGroup().addTo(map);
-const siteLayer = L.layerGroup().addTo(map);
+L.control.zoom({ position: "bottomright" }).addTo(map);
+// Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
+// control's on/off state persists.
+const heatLayer = L.layerGroup().addTo(map);       // reach zones around open AEDs
+// One pane per band, outermost lowest; pane opacity gives a clean union of overlapping rings.
+const ZONE_COLOURS = ["#1a9850", "#91cf60", "#fee08b", "#fc8d59"]; // ≤2, 2–4, 4–6 min, 6 min – ambulance
+const ZONE_OPACITY = [0.42, 0.34, 0.3, 0.24];
+const zoneRenderers = ZONE_COLOURS.map((_, b) => {
+  const name = `zone${b}`;
+  map.createPane(name);
+  const pane = map.getPane(name)!;
+  pane.style.zIndex = String(380 - b);
+  pane.style.opacity = String(ZONE_OPACITY[b]);
+  pane.style.pointerEvents = "none";
+  return L.canvas({ pane: name, padding: 0.5 });
+});
+const demandLayer = L.layerGroup();                // raw demand points
+const candidateLayer = L.layerGroup();             // candidate sites without an AED
+const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
+const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
+const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
+// Google-style "Layers" button (bottom left) with a popover of toggles.
+const LAYERS: [string, L.LayerGroup][] = [
+  ["AED reach zones", heatLayer],
+  ["Recommended AEDs", newLayer],
+  ["Existing AEDs", existingLayer],
+  ["Candidate AED sites", candidateLayer],
+  ["Demand points", demandLayer],
+  ["Building outlines", buildingLayer],
+];
+const layersCtl = new L.Control({ position: "bottomleft" });
+layersCtl.onAdd = () => {
+  const wrap = L.DomUtil.create("div", "layers-ctl");
+  const btn = Object.assign(document.createElement("button"), { type: "button", className: "layers-btn" });
+  btn.setAttribute("aria-expanded", "false");
+  btn.setAttribute("aria-haspopup", "true");
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5z"/><path d="m2 13 10 5 10-5"/></svg>Layers';
+  const pop = document.createElement("div");
+  pop.className = "layers-pop";
+  pop.hidden = true;
+  pop.innerHTML = "<h3>Map details</h3>";
+  for (const [label, layer] of LAYERS) {
+    const row = document.createElement("label");
+    const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: map.hasLayer(layer) });
+    box.addEventListener("change", () => (box.checked ? layer.addTo(map) : layer.remove()));
+    row.append(box, document.createTextNode(label));
+    pop.append(row);
+  }
+  const setOpen = (open: boolean) => { pop.hidden = !open; btn.setAttribute("aria-expanded", String(open)); };
+  btn.addEventListener("click", () => setOpen(pop.hidden));
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target as Node)) setOpen(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
+  wrap.append(pop, btn);
+  L.DomEvent.disableClickPropagation(wrap);
+  L.DomEvent.disableScrollPropagation(wrap);
+  return wrap;
+};
+layersCtl.addTo(map);
+
 let fittedFor = "";
-let campusBounds: L.LatLngBounds | null = null;
-/** Fit the campus and lock the view to it: no zooming out past it, no panning away. */
-function lockToCampus() {
-  if (!campusBounds) return;
+let viewBounds: L.LatLngBounds | null = null;
+let viewLoose = false; // custom data: allow a little zoom-out and panning so points can be added nearby
+
+/** Fit the dataset and limit the view to it: zoom-out stops at the data, panning stays near it. */
+function lockToData(animate = false) {
+  if (!viewBounds) return;
   map.invalidateSize();
   map.setMinZoom(0); // let fitBounds pick the zoom before clamping to it
-  map.fitBounds(campusBounds, { padding: [10, 10], animate: false });
-  map.setMinZoom(map.getZoom());
-  map.setMaxBounds(campusBounds.pad(0.05));
+  map.setMaxBounds(undefined as unknown as L.LatLngBounds);
+  const { tl, br } = viewPadding();
+  // The lock is taken from the fitted view (which leaves room for the panel), not the raw data,
+  // so panning never pushes the data back under the panel.
+  const lock = () => {
+    map.setMinZoom(Math.max(0, map.getZoom() - (viewLoose ? 2 : 0)));
+    map.setMaxBounds(map.getBounds().pad(viewLoose ? 0.75 : 0.15));
+  };
+  if (animate && !document.hidden && !reducedMotion.matches) {
+    map.once("moveend", lock);
+    map.flyToBounds(viewBounds, { paddingTopLeft: tl, paddingBottomRight: br, duration: 0.8 });
+  } else {
+    map.fitBounds(viewBounds, { paddingTopLeft: tl, paddingBottomRight: br, animate: false });
+    lock();
+  }
+}
+
+/** Screen space taken by floating UI, so fitted data lands in the visible part of the map. */
+function viewPadding(): { tl: L.Point; br: L.Point } {
+  const open = document.body.classList.contains("panel-open");
+  const panel = document.getElementById("panel")!.getBoundingClientRect();
+  if (window.innerWidth <= 700) {
+    return { tl: L.point(16, 64), br: L.point(16, (open ? window.innerHeight - panel.top : 56) + 24) };
+  }
+  return { tl: L.point(open ? panel.right + 36 : 96, 64), br: L.point(72, 96) };
 }
 // The container can change size after first paint (fonts, layout breakpoints); refit then.
 let lastSize = "";
@@ -106,19 +211,38 @@ new ResizeObserver(([entry]) => {
   const size = `${Math.round(width)}x${Math.round(height)}`;
   if (size === lastSize) return; // ignore no-op notifications so a fly-to is never cancelled
   lastSize = size;
-  lockToCampus();
+  lockToData();
 }).observe(document.getElementById("map")!);
+
+/** Geographic bounds of everything in the instance (grid cells padded by half a cell). */
+function instanceBounds(inst: ReturnType<typeof scenario>["inst"]): L.LatLngBounds {
+  const half = inst.cellSizeM / 2;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const take = (x: number, y: number, pad: number) => {
+    minX = Math.min(minX, x - pad); maxX = Math.max(maxX, x + pad);
+    minY = Math.min(minY, y - pad); maxY = Math.max(maxY, y + pad);
+  };
+  for (let i = 0; i < inst.nCells; i++) take(inst.cellXY[2 * i], inst.cellXY[2 * i + 1], half);
+  for (let j = 0; j < inst.nSites; j++) take(inst.siteXY[2 * j], inst.siteXY[2 * j + 1], 0);
+  if (!Number.isFinite(minX)) { minX = minY = -250; maxX = maxY = 250; }
+  // Keep a minimum span so a single point does not zoom to street level.
+  const span = 300;
+  if (maxX - minX < span) { const c = (minX + maxX) / 2; minX = c - span / 2; maxX = c + span / 2; }
+  if (maxY - minY < span) { const c = (minY + maxY) / 2; minY = c - span / 2; maxY = c + span / 2; }
+  const sw = metresToLatLon(minX, minY, inst.originLatLon), ne = metresToLatLon(maxX, maxY, inst.originLatLon);
+  return L.latLngBounds([sw, ne]);
+}
 
 const legend = new L.Control({ position: "bottomleft" });
 legend.onAdd = () => {
   const div = L.DomUtil.create("div", "legend");
   const item = (colour: string, label: string, dot = false) =>
-    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #0b0f17,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
+    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #fff,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
   div.innerHTML =
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
-    `<div class="legend-body"><h3>Fastest AED</h3><ul>` +
-    BANDS.map((b) => item(b.colour, b.label)).join("") + item(UNREACHED, "After ambulance") +
-    `</ul><p class="note">Stronger tint = more arrests</p><hr />` +
+    `<div class="legend-body"><h3>AED reached and back within</h3><ul>` +
+    BANDS.map((b, k) => item(b.colour, k === BANDS.length - 1 ? "6 min – before ambulance" : b.label)).join("") +
+    `</ul><p class="note">Outside the rings the ambulance gets there first.</p><hr />` +
     `<h3>AEDs</h3><ul>` +
     item(SITE.existing, "Existing", true) + item(SITE.new, "New", true) + item(SITE.locked, "Locked this period", true) +
     `</ul></div>`;
@@ -140,60 +264,80 @@ function bandColour(t: number, emsS: number) {
   return BANDS.find((b) => t <= b.edge)!.colour;
 }
 
+let refitPending = false; // set by imports and copies: fly to the new data on the next draw
+
 function drawMap() {
   const { source, emsResponseS } = settings();
   const { inst, tau } = scenario(source, emsResponseS);
   const x = state.solution?.x ?? inst.siteExisting;
   const q = state.period, P = inst.periods.length, J = inst.nSites;
   const ll = (mx: number, my: number) => metresToLatLon(mx, my, inst.originLatLon);
+  const editable = source.kind === "custom";
+  const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
-  cellLayer.clearLayers();
-  siteLayer.clearLayers();
+  for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
+  if (source.kind === "york" && york) {
+    // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
+    L.polygon(york.campus, { color: "#5f6368", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
+    for (const fp of york.footprints) {
+      L.polygon(fp.ring, { color: "#5f6368", weight: 1, opacity: 0.8, fillColor: "#5f6368", fillOpacity: 0.06, interactive: false }).addTo(buildingLayer);
+    }
+  }
   markers.clear();
 
-  let maxRate = 0;
-  for (let i = 0; i < inst.nCells; i++) maxRate = Math.max(maxRate, inst.cellRate[i * P + q]);
-  const half = inst.cellSizeM / 2;
-  for (let i = 0; i < inst.nCells; i++) {
-    let t = Infinity;
-    for (let j = 0; j < J; j++) {
-      if (x[j] && inst.siteOpen[j * P + q]) t = Math.min(t, tau[i * J + j]);
+  // Reach zones: for every AED that is open now, rings in real metres showing how far a bystander can
+  // fetch it and get back within 2 / 4 / 6 minutes and before the ambulance. Geographic circles grow
+  // with the map as you zoom in. Each band has its own semi-transparent pane, so overlapping rings of
+  // the same band merge into one shape instead of stacking darker.
+  const { params } = scenario(source, emsResponseS);
+  const perMetre = (2 * params.detourFactor) / params.walkSpeedMps; // seconds per metre of distance
+  const edges = [...BANDS.map((b) => Math.min(b.edge, emsResponseS)), emsResponseS];
+  for (let j = 0; j < J; j++) {
+    if (!x[j] || !inst.siteOpen[j * P + q]) continue;
+    const pos = ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1]);
+    const slack = params.dispatchDelayS + inst.siteFloorDelay[j];
+    for (let b = ZONE_COLOURS.length - 1; b >= 0; b--) {
+      const radius = Math.min(params.maxTauS, edges[b]) > slack ? (Math.min(params.maxTauS, edges[b]) - slack) / perMetre : 0;
+      if (radius <= 0) continue;
+      L.circle(pos, { radius, renderer: zoneRenderers[b], stroke: false, fillColor: ZONE_COLOURS[b], fillOpacity: 1, interactive: false })
+        .addTo(heatLayer);
     }
-    const rate = inst.cellRate[i * P + q];
-    const cx = inst.cellXY[2 * i], cy = inst.cellXY[2 * i + 1];
-    L.rectangle([ll(cx - half, cy - half), ll(cx + half, cy + half)], {
-      stroke: false, fillColor: bandColour(t, emsResponseS),
-      fillOpacity: maxRate > 0 ? 0.18 + 0.5 * (rate / maxRate) : 0.18,
-    }).bindTooltip(`${Number.isFinite(t) ? `<b>${(t / 60).toFixed(1)} min</b> to nearest AED` : "No AED in reach"}<br>${rate.toFixed(4)} arrests / yr`)
-      .addTo(cellLayer);
+  }
+  for (let i = 0; i < inst.nCells; i++) {
+    const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: "#ffffff", weight: editable ? 1 : 0, fillColor: "#5f6368", fillOpacity: 0.85 })
+      .bindTooltip("Demand point").addTo(demandLayer);
+    if (editable) dot.on("click", (e) => { L.DomEvent.stop(e); openDemandEditor(i); });
   }
 
   for (let j = 0; j < J; j++) {
     const open = inst.siteOpen[j * P + q] === 1;
     const pos = ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1]);
+    const forced = inst.siteForced?.[j] === 1;
     if (x[j]) {
       const role = inst.siteExisting[j] ? "existing" : "new";
       const m = L.circleMarker(pos, {
-        radius: MARKER_R, color: "#0e1014", weight: 2, fillOpacity: 1,
-        fillColor: open ? SITE[role] : SITE.locked,
-      }).bindTooltip(`<b>Site ${j}</b> · ${role === "new" ? "New" : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
-        .addTo(siteLayer);
-      if (role === "new") {
-        markers.set(j, m);
-        m.on("click", () => selectSite(j, { scrollRow: true }));
-      }
-    } else if (ui.candidates.checked) {
-      L.circleMarker(pos, { radius: 2.5, stroke: false, fillColor: "#94a3b8", fillOpacity: open ? 0.75 : 0.25 })
-        .bindTooltip(`Site ${j} · candidate<br>${cap(inst.siteKind[j])}`).addTo(siteLayer);
+        radius: MARKER_R, fillOpacity: 1, fillColor: open ? SITE[role] : SITE.locked,
+        // Must-include sites get a dashed white outline so they read as a planner's pin.
+        color: forced ? MUST : "#ffffff", weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
+      }).bindTooltip(`<b>${name(j)}</b> · ${role === "new" ? (forced ? "Must-include" : "Recommended") : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
+        .addTo(role === "existing" ? existingLayer : newLayer);
+      if (role === "new") markers.set(j, m);
+      wireSite(m, j, role === "new");
+    } else {
+      const m = L.circleMarker(pos, {
+        radius: editable ? 4.5 : 3, color: "#ffffff", weight: 1, fillColor: "#80868b", fillOpacity: open ? 0.9 : 0.35,
+      }).bindTooltip(`${name(j)} · candidate<br>${cap(inst.siteKind[j])}`).addTo(candidateLayer);
+      wireSite(m, j, false);
     }
   }
 
-  const key = JSON.stringify(source);
-  if (fittedFor !== key) {
-    const ext = Math.sqrt(inst.nCells) * inst.cellSizeM;
-    campusBounds = L.latLngBounds([ll(0, 0), ll(ext, ext)]);
-    lockToCampus();
+  const key = sourceKey(source).replace(/^custom\d+$/, "custom");
+  if (fittedFor !== key || refitPending) {
+    viewBounds = instanceBounds(inst);
+    viewLoose = editable;
+    lockToData(refitPending);
     fittedFor = key;
+    refitPending = false;
   }
   drawSelection();
 }
@@ -245,35 +389,374 @@ function hoverSite(j: number | null) {
   if (j !== null) markers.get(j)?.bringToFront();
 }
 
-// ---------- panels ----------
-const ICONS = {
-  heart: '<path d="M12 20s-7-4.3-9-8.6C1.7 8.4 3.6 5 6.8 5c1.9 0 3.3 1 4.2 2.2h2C13.9 6 15.3 5 17.2 5c3.2 0 5.1 3.4 3.8 6.4C19 15.7 12 20 12 20z"/>',
-  pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 1 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
-  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
-  bolt: '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6L13 3z"/>',
-};
-const icon = (name: keyof typeof ICONS) =>
-  `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+// ---------- custom data: commit, tools, editors ----------
 
-function metric(ic: keyof typeof ICONS, label: string, value: string, note: string, tone = "") {
-  return `<div class="metric"><div class="label">${icon(ic)}${label}</div><div class="value">${value}</div>` +
-    `<div class="note ${tone}" title="${note}">${note}</div></div>`;
+/**
+ * Apply an edit to the custom dataset: save it, rebuild the model instance under a new version and
+ * re-solve. Until the new answer arrives, the previous plan is carried over by site id.
+ */
+function commitCustom(opts: { refit?: boolean } = {}) {
+  if (!custom) return;
+  const prevChosen = new Set<string>();
+  if (isCustom() && state.solution) {
+    const prev = scenario(settings().source, settings().emsResponseS).inst;
+    state.solution.x.forEach((v, j) => { if (v && !prev.siteExisting[j] && prevIds[j]) prevChosen.add(prevIds[j]); });
+  }
+  saveDataset(custom);
+  customVer++;
+  const inst = datasetToInstance(custom);
+  setInstance({ kind: "custom", version: customVer }, inst);
+  prevIds = custom.sites.map((s) => s.id);
+  updateCustomUi();
+  if (opts.refit) refitPending = true;
+  if (isCustom()) {
+    const x = Uint8Array.from(custom.sites, (s) => (s.existing || s.mustInclude || prevChosen.has(s.id) ? 1 : 0));
+    state.solution = state.solution ? { ...state.solution, x, status: "updating" } : null;
+    if (state.selected !== null && state.selected >= custom.sites.length) state.selected = null;
+    render();
+    resolveSoon(400);
+  }
+}
+let prevIds: string[] = custom?.sites.map((s) => s.id) ?? [];
+
+function updateCustomUi() {
+  const radio = document.querySelector<HTMLInputElement>("input[name=dataset][value=custom]")!;
+  radio.disabled = !custom;
+  const on = isCustom();
+  ui.arrestsField.hidden = !on;
+  ui.copyBtn.hidden = on;
+  editControl.getContainer()?.classList.toggle("hidden", !on);
+  if (!on) setTool("select");
+  if (custom && on) {
+    ui.arrests.value = String(Number(custom.arrestsPerYear.toFixed(3)));
+    const d = custom.demand.length;
+    ui.datasetNote.textContent = `${esc(custom.name)} · ${custom.sites.length} sites · ${d ? `${d} demand points` : "uniform demand"}`;
+    // Budget can reach every candidate on bigger uploads.
+    ui.budget.max = String(Math.max(30, Math.min(200, custom.sites.length)));
+  } else {
+    ui.budget.max = "30";
+    if (Number(ui.budget.value) > 30) { ui.budget.value = "30"; ui.budgetOut.textContent = "30"; }
+    if (york && settings().source.kind === "york") {
+      ui.datasetNote.textContent = `${york.stats.buildings} real buildings · ${york.stats.mappedAeds} AED mapped in OpenStreetMap · occupancy modelled`;
+    } else if (lead && datasetChoice() === "lead") {
+      const ks = lead.results.kCurve.map((r) => r.K);
+      ui.datasetNote.textContent = `Team campus · seed ${lead.source.seed} · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`;
+    } else if (!lead) {
+      ui.datasetNote.textContent = "Team export missing (run web/scripts/export_data.py): showing a placeholder campus";
+    }
+  }
+  ui.datasetSeg.hidden = !custom && !york;
+  ui.customOpt.hidden = !custom;
+  ui.yorkOpt.hidden = !york;
+  ui.budget.parentElement!.querySelector(".scale span:last-child")!.textContent = ui.budget.max;
+  paintRange(ui.budget);
 }
 
+function selectDataset(value: "lead" | "york" | "custom") {
+  const r = document.querySelector<HTMLInputElement>(`input[name=dataset][value=${value}]`)!;
+  r.disabled = false;
+  r.checked = true;
+  onSourceChange();
+}
+
+// Map tool: select (click to edit, drag to move), or click-to-add a site / demand point.
+type Tool = "select" | "site" | "demand";
+let tool: Tool = "select";
+const editControl = new L.Control({ position: "topleft" });
+editControl.onAdd = () => {
+  const div = L.DomUtil.create("div", "leaflet-bar edit-tools hidden");
+  const btn = (t: Tool, title: string, svg: string) =>
+    `<a href="#" role="button" data-tool="${t}" title="${title}" aria-label="${title}" aria-pressed="${t === tool}">${svg}</a>`;
+  div.innerHTML =
+    btn("select", "Select: click a marker to edit it, drag a site to move it", '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3l14 8-6 2-3 6z"/></svg>') +
+    btn("site", "Click to add a candidate AED site", '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="6"/><path d="M12 9v6M9 12h6"/></svg>') +
+    btn("demand", "Click to add a demand point", '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>');
+  L.DomEvent.disableClickPropagation(div);
+  div.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-tool]");
+    if (!a) return;
+    e.preventDefault();
+    setTool(a.dataset.tool as Tool);
+  });
+  return div;
+};
+editControl.addTo(map);
+const toolHint = L.DomUtil.create("div", "tool-hint", map.getContainer());
+toolHint.hidden = true;
+
+function setTool(t: Tool) {
+  tool = t;
+  editControl.getContainer()?.querySelectorAll("a[data-tool]").forEach((a) => {
+    const on = (a as HTMLElement).dataset.tool === t;
+    a.classList.toggle("on", on);
+    a.setAttribute("aria-pressed", String(on));
+  });
+  map.getContainer().classList.toggle("adding", t !== "select");
+  toolHint.hidden = t === "select";
+  toolHint.textContent = t === "site" ? "Click the map to add a candidate AED site · Esc to stop"
+    : t === "demand" ? "Click the map to add a demand point · Esc to stop" : "";
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tool !== "select") setTool("select"); });
+
+map.on("click", (e: L.LeafletMouseEvent) => {
+  if (!custom || !isCustom() || tool === "select") return;
+  const { lat, lng } = e.latlng;
+  if (tool === "site") {
+    custom.sites.push({ id: newId("s"), name: `Site ${custom.sites.length + 1}`, lat, lon: lng, kind: "other", existing: false, mustInclude: false });
+    commitCustom();
+    openSiteEditor(custom.sites.length - 1);
+  } else {
+    custom.demand.push({ id: newId("d"), name: `Point ${custom.demand.length + 1}`, lat, lon: lng, weight: 100 });
+    commitCustom();
+    openDemandEditor(custom.demand.length - 1);
+  }
+});
+
+// Drag a site marker to move it (custom data, select tool). A press without movement is a click.
+let dragJustEnded = false;
+function wireSite(m: L.CircleMarker, j: number, selectable: boolean) {
+  m.on("click", (e) => {
+    L.DomEvent.stop(e);
+    if (dragJustEnded) { dragJustEnded = false; return; }
+    if (isCustom()) openSiteEditor(j);
+    else if (selectable) selectSite(j, { scrollRow: true });
+  });
+  if (!isCustom()) return;
+  m.on("mousedown", (e: L.LeafletMouseEvent) => {
+    if (tool !== "select") return;
+    L.DomEvent.stop(e);
+    const start = e.containerPoint;
+    let moved = false;
+    map.dragging.disable();
+    const onMove = (ev: L.LeafletMouseEvent) => {
+      if (!moved && ev.containerPoint.distanceTo(start) < 4) return;
+      moved = true;
+      m.setLatLng(ev.latlng);
+    };
+    const onUp = () => {
+      map.off("mousemove", onMove);
+      map.off("mouseup", onUp);
+      document.removeEventListener("mouseup", onUp);
+      map.dragging.enable();
+      if (!moved || !custom) return;
+      dragJustEnded = true;
+      setTimeout(() => { dragJustEnded = false; }, 50);
+      const p = m.getLatLng();
+      Object.assign(custom.sites[j], { lat: p.lat, lon: p.lng });
+      editRing?.setLatLng(p);
+      commitCustom();
+    };
+    map.on("mousemove", onMove);
+    map.on("mouseup", onUp);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+// Editor popups pan into view (with room for the controls) instead of being clipped at the map edge.
+// The editor is a panel docked in the map corner (never clipped by the map edge), with a dashed ring
+// on the item being edited.
+const inspector = L.DomUtil.create("div", "inspector", map.getContainer());
+inspector.hidden = true;
+L.DomEvent.disableClickPropagation(inspector);
+L.DomEvent.disableScrollPropagation(inspector);
+let editRing: L.CircleMarker | null = null;
+
+function showInspector(content: HTMLElement, at: L.LatLngExpression) {
+  const close = Object.assign(document.createElement("button"), { type: "button", className: "icon-btn insp-close", ariaLabel: "Close editor" });
+  close.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+  close.addEventListener("click", hideInspector);
+  inspector.replaceChildren(close, content);
+  inspector.hidden = false;
+  editRing?.remove();
+  editRing = L.circleMarker(at, {
+    renderer: ringRenderer, pane: "selection", radius: 12, color: "#202124", weight: 2, dashArray: "4 3",
+    fill: false, interactive: false,
+  }).addTo(map);
+  // Bring the edited item into view if the panel or an edge hides it: shift the map so the item sits
+  // left of the panel.
+  const animate = !document.hidden && !reducedMotion.matches;
+  const pt = map.latLngToContainerPoint(at);
+  const box = inspector.getBoundingClientRect(), mapBox = map.getContainer().getBoundingClientRect();
+  const left = box.left - mapBox.left, top = box.top - mapBox.top;
+  const size = map.getSize();
+  if (pt.x > left - 30 && pt.y > top - 30) map.panBy([pt.x - Math.max(60, left - 60), 0], { animate });
+  else if (pt.x < 50 || pt.y < 50 || pt.x > size.x - 30 || pt.y > size.y - 30) map.panTo(at, { animate });
+  content.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+}
+
+function hideInspector() {
+  inspector.hidden = true;
+  inspector.replaceChildren();
+  editRing?.remove();
+  editRing = null;
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !inspector.hidden) hideInspector(); });
+
+/** Build a small form; values are set through the DOM, so user text is never parsed as HTML. */
+function formField(label: string, input: HTMLElement) {
+  const wrap = document.createElement("label");
+  wrap.className = "pop-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  wrap.append(span, input);
+  return wrap;
+}
+
+function openSiteEditor(j: number) {
+  if (!custom) return;
+  const s = custom.sites[j];
+  if (!s) return;
+  const el = document.createElement("form");
+  el.className = "pop-form";
+  el.addEventListener("submit", (e) => e.preventDefault());
+  const title = document.createElement("h4");
+  title.textContent = "Candidate site";
+  const name = Object.assign(document.createElement("input"), { value: s.name, maxLength: 80 });
+  const kind = document.createElement("select");
+  for (const k of KINDS) kind.add(new Option(cap(k), k, false, k === s.kind));
+  const check = (label: string, on: boolean) => {
+    const w = document.createElement("label");
+    w.className = "pop-check";
+    const c = Object.assign(document.createElement("input"), { type: "checkbox", checked: on });
+    w.append(c, document.createTextNode(label));
+    return { w, c };
+  };
+  const ex = check("Existing AED (already installed, free)", s.existing);
+  const must = check("Must include (always place, uses budget)", s.mustInclude);
+  const hours = document.createElement("p");
+  hours.className = "pop-note";
+  const del = Object.assign(document.createElement("button"), { type: "button", textContent: "Delete site", className: "btn ghost danger" });
+  const setHours = () => {
+    const open = ({ academic: "day + evening", dining: "day + evening", athletic: "day + evening" } as Record<string, string>)[kind.value] ?? "24/7";
+    hours.textContent = `Open ${open} · ${kind.value === "outdoor" ? "cost 1.5, no indoor delay" : "cost 1"}`;
+  };
+  setHours();
+  el.append(title, formField("Name", name), formField("Type", kind), ex.w, must.w, hours, del);
+
+  let t = 0;
+  const save = (immediate = false) => {
+    clearTimeout(t);
+    const run = () => {
+      Object.assign(s, { name: name.value.trim() || s.name, kind: kind.value, existing: ex.c.checked, mustInclude: must.c.checked && !ex.c.checked });
+      commitCustom();
+    };
+    if (immediate) run(); else t = window.setTimeout(run, 500);
+  };
+  name.addEventListener("input", () => save());
+  kind.addEventListener("change", () => { setHours(); save(true); });
+  ex.c.addEventListener("change", () => { if (ex.c.checked) must.c.checked = false; save(true); });
+  must.c.addEventListener("change", () => { if (must.c.checked) ex.c.checked = false; save(true); });
+  del.addEventListener("click", () => {
+    custom!.sites.splice(j, 1);
+    hideInspector();
+    commitCustom();
+  });
+  showInspector(el, [s.lat, s.lon]);
+}
+
+function openDemandEditor(i: number) {
+  if (!custom) return;
+  const el = document.createElement("form");
+  el.className = "pop-form";
+  el.addEventListener("submit", (e) => e.preventDefault());
+  const title = document.createElement("h4");
+  title.textContent = "Demand point";
+  const d = custom.demand[i];
+  if (!d) {
+    // Auto-generated uniform demand: not editable point by point.
+    const p = document.createElement("p");
+    p.className = "pop-note";
+    p.textContent = "This dataset has no demand points, so demand is spread evenly. Upload demand points or add one with the demand tool to replace it.";
+    el.append(title, p);
+    const inst = scenario(settings().source, settings().emsResponseS).inst;
+    const [lat, lon] = metresToLatLon(inst.cellXY[2 * i], inst.cellXY[2 * i + 1], inst.originLatLon);
+    showInspector(el, [lat, lon]);
+    return;
+  }
+  const name = Object.assign(document.createElement("input"), { value: d.name, maxLength: 80 });
+  const weight = Object.assign(document.createElement("input"), { type: "number", min: "0", step: "any", value: String(d.weight) });
+  const note = document.createElement("p");
+  note.className = "pop-note";
+  note.textContent = "Weight is relative: people present, footfall or risk. The total arrests per year is set in the sidebar.";
+  const del = Object.assign(document.createElement("button"), { type: "button", textContent: "Delete point", className: "btn ghost danger" });
+  el.append(title, formField("Name", name), formField("Weight", weight), note, del);
+  let t = 0;
+  const save = () => {
+    clearTimeout(t);
+    t = window.setTimeout(() => {
+      const w = Number(weight.value);
+      Object.assign(d, { name: name.value.trim() || d.name, weight: Number.isFinite(w) && w >= 0 ? w : d.weight });
+      delete d.periodWeights; // an edited weight uses the default day / evening / night split
+      commitCustom();
+    }, 500);
+  };
+  name.addEventListener("input", save);
+  weight.addEventListener("input", save);
+  del.addEventListener("click", () => {
+    custom!.demand.splice(i, 1);
+    hideInspector();
+    commitCustom();
+  });
+  showInspector(el, [d.lat, d.lon]);
+}
+
+// Upload, copy and clear.
+const upload = initUpload({
+  hasCustom: () => !!custom && (custom.sites.length > 0 || custom.demand.length > 0),
+  currentArrests: () => custom?.arrestsPerYear ?? 5,
+  onImport: (r: ImportResult) => {
+    const base: CustomDataset = custom ?? { name: r.fileName.replace(/\.[^.]+$/, ""), sites: [], demand: [], arrestsPerYear: r.arrestsPerYear };
+    if (r.role === "sites") base.sites = r.mode === "add" ? [...base.sites, ...r.sites] : r.sites;
+    else { base.demand = r.mode === "add" ? [...base.demand, ...r.demand] : r.demand; base.arrestsPerYear = r.arrestsPerYear; }
+    if (!custom) base.name = r.fileName.replace(/\.[^.]+$/, "");
+    custom = base;
+    commitCustom({ refit: true });
+    selectDataset("custom");
+  },
+});
+ui.uploadBtn.addEventListener("click", () => upload.open());
+ui.copyBtn.addEventListener("click", () => {
+  const s = settings();
+  const inst = scenario(s.source, s.emsResponseS).inst;
+  // Never replace the viewer's own data without asking.
+  if (custom && (custom.sites.length || custom.demand.length) &&
+      !confirm(`Replace your dataset "${custom.name}" (${custom.sites.length} sites) with a copy of this campus?`)) return;
+  custom = s.source.kind === "york" && york
+    ? { name: "Copy of York U (OpenStreetMap)", arrestsPerYear: york.arrestsPerYear,
+        sites: york.sites.map((x) => ({ ...x })), demand: york.demand.map((d) => ({ ...d, periodWeights: d.periodWeights && [...d.periodWeights] as [number, number, number] })) }
+    : datasetFromInstance(inst, s.source.kind === "lead" ? "Copy of team campus" : "Copy of placeholder campus");
+  commitCustom({ refit: false });
+  selectDataset("custom");
+});
+ui.clearBtn.addEventListener("click", () => {
+  if (!custom || !confirm("Delete the custom dataset from this browser? This cannot be undone.")) return;
+  custom = null;
+  saveDataset(null);
+  hideInspector();
+  selectDataset("lead");
+  updateCustomUi();
+});
+ui.arrests.addEventListener("input", () => {
+  const v = Number(ui.arrests.value);
+  if (!custom || !Number.isFinite(v) || v < 0) return;
+  custom.arrestsPerYear = v;
+  clearTimeout(arrestsT);
+  arrestsT = window.setTimeout(() => commitCustom(), 400);
+});
+let arrestsT = 0;
+
+// ---------- panels ----------
 function availBadges(open: boolean[], periods: string[]) {
-  const names = periods.map((p) => PERIOD_NAMES[p] ?? cap(p));
-  const title = names.map((n, p) => `${n}: ${open[p] ? "open" : "locked"}`).join(" · ");
+  const title = periods.map((p, k) => `${PERIOD_NAMES[p] ?? cap(p)}: ${open[k] ? "open" : "locked"}`).join(" · ");
   return `<span class="avail" title="${title}" aria-label="${title}">` +
-    names.map((n, p) => `<span class="${open[p] ? "on" : ""}">${n[0]}</span>`).join("") + "</span>";
+    periods.map((p, k) => `<span class="${open[k] ? "on" : ""}">${periodIcon(p, 13)}</span>`).join("") + "</span>";
 }
 
 const COLUMNS: { key: SortKey; label: string; cls?: string; title?: string; leadOnly?: boolean }[] = [
   { key: "site", label: "Site" },
-  { key: "kind", label: "Type" },
   { key: "open", label: "Open" },
   { key: "freq", label: "Freq", cls: "right", leadOnly: true,
     title: "Share of the lead's Monte Carlo scenarios (K = 10) whose re-optimized plan uses this site" },
-  { key: "lat", label: "Lat/Lon", cls: "right" },
 ];
 
 function drawTable() {
@@ -286,19 +769,19 @@ function drawTable() {
   const cols = COLUMNS.filter((c) => !c.leadOnly || freq);
   if (!cols.some((c) => c.key === state.sort.key)) state.sort = { key: "site", dir: 1 };
 
-  type Row = { j: number; kind: string; open: boolean[]; nOpen: number; freq: number; lat: number; lon: number };
+  type Row = { j: number; name: string; open: boolean[]; nOpen: number; freq: number };
   const rows: Row[] = [];
   for (let j = 0; j < inst.nSites; j++) {
     if (!x[j] || inst.siteExisting[j]) continue;
-    const [lat, lon] = metresToLatLon(inst.siteXY[2 * j], inst.siteXY[2 * j + 1], inst.originLatLon);
     const open = inst.periods.map((_, p) => inst.siteOpen[j * P + p] === 1);
-    rows.push({ j, kind: inst.siteKind[j], open, nOpen: open.filter(Boolean).length, freq: freq?.get(j) ?? 0, lat, lon });
+    rows.push({ j, name: inst.siteName?.[j] ?? "", open, nOpen: open.filter(Boolean).length, freq: freq?.get(j) ?? 0 });
   }
   if (state.selected !== null && !rows.some((r) => r.j === state.selected)) state.selected = null;
 
   const { key, dir } = state.sort;
   const by: Record<SortKey, (r: Row) => number | string> = {
-    site: (r) => r.j, kind: (r) => r.kind, open: (r) => r.nOpen, freq: (r) => r.freq, lat: (r) => r.lat,
+    // Named datasets sort by name; the team campus only has numbers.
+    site: (r) => (inst.siteName ? r.name.toLowerCase() : r.j), open: (r) => r.nOpen, freq: (r) => r.freq,
   };
   rows.sort((a, b) => {
     const va = by[key](a), vb = by[key](b);
@@ -315,11 +798,10 @@ function drawTable() {
   const body = rows.map((r) => {
     const sel = r.j === state.selected;
     return `<tr data-site="${r.j}" tabindex="0" class="${sel ? "selected" : ""}" aria-selected="${sel}">` +
-      `<td class="site-id">${r.j}</td>` +
-      `<td><span class="kind"><i style="background:${KIND_COLOURS[r.kind] ?? "#a3a3a3"}"></i>${r.kind}</span></td>` +
+      (inst.siteName ? `<td class="site-name" title="Site #${r.j}">${esc(inst.siteName[r.j])}</td>` : `<td class="site-id">${r.j}</td>`) +
       `<td>${availBadges(r.open, inst.periods)}</td>` +
       (freq ? `<td class="freq${r.freq >= 0.5 ? " strong" : ""}" title="Chosen in ${(r.freq * 100).toFixed(1)}% of the lead's Monte Carlo scenarios">${Math.round(r.freq * 100)}%</td>` : "") +
-      `<td class="coords" title="${r.lat.toFixed(6)}, ${r.lon.toFixed(6)}"><span>${r.lat.toFixed(3)}</span><span>${r.lon.toFixed(3)}</span></td></tr>`;
+      "</tr>";
   }).join("");
 
   ui.siteCount.textContent = rows.length ? `${rows.length} site${rows.length === 1 ? "" : "s"}` : "";
@@ -360,42 +842,8 @@ ui.sites.addEventListener("focusin", (e) => {
 });
 
 function drawPanels() {
-  const { source, emsResponseS, method } = settings();
-  const { inst, cov, params } = scenario(source, emsResponseS);
-  const sol = state.solution;
-  const x = sol?.x ?? inst.siteExisting;
-  const P = inst.periods.length, q = state.period;
-  const lives = evaluate(cov, x);
-  const existing = evaluate(cov, cov.siteExisting);
-  const byPeriod = evaluateByPeriod(cov, x);
-  let nNew = 0, nExisting = 0, locked = 0;
-  for (let j = 0; j < inst.nSites; j++) {
-    if (!x[j]) continue;
-    if (inst.siteExisting[j]) nExisting++; else nNew++;
-    if (!inst.siteOpen[j * P + q]) locked++;
-  }
-  const periodName = cap(inst.periods[q]);
-
-  const gain = lives - existing;
-  // When showing the lead's own placement, check our evaluate() reproduces their k_curve.csv number.
-  const leadRow = sol?.status === "lead" ? lead?.results.kCurve.find((r) => r.K === settings().budget) : undefined;
-  const livesNote = leadRow
-    ? `${signed(gain)} vs existing · ${Math.abs(leadRow.ilp_lives - lives) < 5e-6 ? "matches" : "differs from"} lead's ${leadRow.ilp_lives.toFixed(3)}`
-    : `${signed(gain)} vs existing AEDs only`;
-  const solveNote = !sol ? (method === "ilp" ? "HiGHS ILP" : "Lazy greedy")
-    : sol.status === "lead" ? "Lead's ILP · placements.json"
-    : sol.method === "ilp" ? `HiGHS ILP in browser · ${sol.status}` : "Lazy greedy in browser";
-  ui.metrics.innerHTML =
-    metric("heart", "Lives saved / yr", lives.toFixed(3), livesNote, gain > 0 ? "up" : "") +
-    metric("pin", "AEDs placed", `${nNew}<small>new</small>`, `plus ${nExisting} existing`) +
-    metric("clock", `${periodName} lives / yr`, byPeriod[q].toFixed(3),
-      locked ? `${locked} AED${locked === 1 ? "" : "s"} locked this period` : "All AEDs open this period", locked ? "warn" : "") +
-    metric("bolt", "Solve time", sol ? `${sol.runtimeS.toFixed(2)}<small>s</small>` : "—", solveNote);
-
-  const maxP = Math.max(...byPeriod, 1e-12);
-  ui.bars.innerHTML = byPeriod.map((v, p) =>
-    `<div class="bar ${p === q ? "active" : ""}"><span>${PERIOD_NAMES[inst.periods[p]] ?? cap(inst.periods[p])}</span>` +
-    `<div class="track"><div style="width:${(100 * v) / maxP}%"></div></div><b>${v.toFixed(3)}</b></div>`).join("");
+  const { source, emsResponseS } = settings();
+  const { params } = scenario(source, emsResponseS);
 
   drawTable();
 
@@ -430,13 +878,14 @@ function runIlp(id: number, s: ReturnType<typeof settings>): Promise<IlpReply> {
     };
     inflight = { id, cancel: () => { w.removeEventListener("message", onMsg); resolve({ id, error: "cancelled" }); } };
     w.addEventListener("message", onMsg);
-    w.postMessage({ id, source: s.source, emsResponseS: s.emsResponseS, budget: s.budget } satisfies IlpRequest);
+    const inst = s.source.kind === "custom" || s.source.kind === "york" ? scenario(s.source, s.emsResponseS).inst : undefined;
+    w.postMessage({ id, source: s.source, emsResponseS: s.emsResponseS, budget: s.budget, inst } satisfies IlpRequest);
   });
 }
 
 /** The lead's own ILP answer for this budget, when the scenario is exactly the one they ran. */
 function leadPlacement(s: ReturnType<typeof settings>): Uint8Array | null {
-  if (!lead || s.source.kind !== "lead" || s.method !== "ilp") return null;
+  if (!lead || s.source.kind !== "lead") return null;
   if (s.emsResponseS !== Number(lead.params.ems_response_s)) return null;
   const ids = lead.results.placements[String(s.budget)];
   if (!ids) return null;
@@ -447,7 +896,7 @@ function leadPlacement(s: ReturnType<typeof settings>): Uint8Array | null {
 
 async function solve() {
   const s = settings();
-  const key = `${JSON.stringify(s.source)}:${s.emsResponseS}:${s.method}:${s.budget}`;
+  const key = `${JSON.stringify(s.source)}:${s.emsResponseS}:${s.budget}`;
   const id = ++requestId;
   let sol = solveCache.get(key);
   if (!sol) {
@@ -456,8 +905,6 @@ async function solve() {
       const cov = scenario(s.source, s.emsResponseS).cov;
       const row = lead!.results.kCurve.find((r) => r.K === s.budget);
       sol = { x: fromLead, lives: evaluate(cov, fromLead), method: "ilp", runtimeS: row?.ilp_time_s ?? 0, status: "lead" };
-    } else if (s.method === "greedy") {
-      sol = solveGreedy(scenario(s.source, s.emsResponseS).cov, s.budget);
     } else {
       ui.busyText.textContent = "Solving ILP…";
       ui.busy.classList.remove("error");
@@ -479,7 +926,7 @@ async function solve() {
   }
   if (id !== requestId) return; // a newer request superseded this one
   if (inflight && inflight.id !== id) {
-    // A cached / greedy / lead answer arrived while an older ILP was still running: stop it.
+    // A cached or team answer arrived while an older ILP was still running: stop it.
     inflight.cancel();
     worker.terminate();
     worker = newWorker();
@@ -499,18 +946,55 @@ function drawCharts() {
   const s = settings();
   const show = !!lead && s.source.kind === "lead";
   ui.charts.hidden = !show;
-  if (!show) return;
+  document.getElementById("chartsEmpty")!.hidden = show;
+  if (!show || sheet.hidden) return; // charts need a visible sheet to measure their width
   const atBase = s.emsResponseS === Number(lead!.params.ems_response_s);
   drawKCurve(ui.kcurve, lead!.results.kCurve, lead!.results.mcKCurve, s.budget,
     atBase ? null : state.solution?.lives ?? null);
   drawTornado(ui.tornado, lead!.results.oat);
 }
 
+// ---------- floating panel and insights sheet ----------
+const panelToggle = document.getElementById("panelToggle") as HTMLButtonElement;
+function setPanel(open: boolean) {
+  document.body.classList.toggle("panel-open", open);
+  panelToggle.setAttribute("aria-expanded", String(open));
+  panelToggle.setAttribute("aria-label", open ? "Collapse side panel" : "Expand side panel");
+  // Refit once the slide has finished so the data sits in the newly visible area.
+  setTimeout(() => lockToData(true), 260);
+}
+panelToggle.addEventListener("click", () => setPanel(!document.body.classList.contains("panel-open")));
+// Phones: the panel is a bottom sheet; tapping its header folds it down or up.
+document.querySelector(".panel-head")!.addEventListener("click", () => {
+  if (window.innerWidth <= 700) setPanel(!document.body.classList.contains("panel-open"));
+});
+if (window.innerWidth <= 700) document.body.classList.remove("panel-open");
+
+const sheet = document.getElementById("sheet")!;
+const insightsBtn = document.getElementById("insightsBtn") as HTMLButtonElement;
+function setSheet(open: boolean) {
+  sheet.hidden = !open;
+  insightsBtn.hidden = open;
+  insightsBtn.setAttribute("aria-expanded", String(open));
+  if (open) { drawCharts(); sheet.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(); }
+  else insightsBtn.focus();
+}
+insightsBtn.addEventListener("click", () => setSheet(true));
+document.getElementById("sheetClose")!.addEventListener("click", () => setSheet(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) setSheet(false); });
+sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
+  const tab = (e.target as HTMLElement).closest<HTMLButtonElement>("[role=tab]");
+  if (!tab) return;
+  sheet.querySelectorAll<HTMLButtonElement>("[role=tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
+  sheet.querySelectorAll<HTMLElement>("[role=tabpanel]").forEach((p) => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+  if (tab.dataset.tab === "charts") drawCharts();
+});
+
 // ---------- wiring ----------
 function buildPeriodButtons() {
   const { inst } = scenario(settings().source, settings().emsResponseS);
   ui.periods.innerHTML = inst.periods.map((p, q) =>
-    `<button type="button" data-q="${q}" class="${q === state.period ? "on" : ""}" aria-pressed="${q === state.period}">${PERIOD_NAMES[p] ?? cap(p)}</button>`).join("");
+    `<button type="button" data-q="${q}" class="icon-chip ${q === state.period ? "on" : ""}" aria-pressed="${q === state.period}" aria-label="${PERIOD_NAMES[p] ?? cap(p)}" title="${PERIOD_NAMES[p] ?? cap(p)} · ${PERIOD_HOURS_TEXT[p] ?? ""}">${periodIcon(p)}</button>`).join("");
 }
 
 /** Fill the range track up to the thumb (WebKit has no ::range-progress). */
@@ -531,23 +1015,22 @@ ui.periods.addEventListener("click", (e) => {
 });
 
 let debounce = 0;
-const resolveSoon = () => { clearTimeout(debounce); debounce = window.setTimeout(solve, 150); };
+const resolveSoon = (ms = 150) => { clearTimeout(debounce); debounce = window.setTimeout(solve, ms); };
 ui.budget.addEventListener("input", () => { ui.budgetOut.textContent = ui.budget.value; paintRange(ui.budget); resolveSoon(); });
 ui.ems.addEventListener("input", () => { ui.emsOut.textContent = `${Number(ui.ems.value).toFixed(1)} min`; paintRange(ui.ems); resolveSoon(); });
 paintRange(ui.budget);
 paintRange(ui.ems);
 function onSourceChange() {
-  const synthetic = settings().source.kind === "synthetic";
-  ui.seedField.hidden = !synthetic;
+  map.attributionControl[settings().source.kind === "york" ? "addAttribution" : "removeAttribution"](YORK_CREDIT);
   state.solution = null;
   state.selected = null;
+  hideInspector();
+  updateCustomUi();
   render();
   solve();
 }
-ui.seed.addEventListener("change", onSourceChange);
 document.querySelectorAll("input[name=dataset]").forEach((el) => el.addEventListener("change", onSourceChange));
-document.querySelectorAll("input[name=solver]").forEach((el) => el.addEventListener("change", solve));
-ui.candidates.addEventListener("change", drawMap);
+const YORK_CREDIT = "Buildings &copy; OpenStreetMap contributors (ODbL)";
 let chartW = 0;
 new ResizeObserver(([e]) => {
   const w = Math.round(e.contentRect.width);
@@ -560,20 +1043,23 @@ ui.kcurve.addEventListener("pick", (e) => {
 });
 
 (async () => {
-  lead = await loadLead();
+  [lead, york] = await Promise.all([loadLead(), loadYork()]);
   if (lead) {
     setLeadInstance(leadInstance(lead));
-    const ks = lead.results.kCurve.map((r) => r.K);
-    ui.datasetNote.textContent = `seed ${lead.source.seed} · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`;
-  } else {
-    // No export yet: fall back to the TypeScript generator and say how to produce the lead's data.
-    const leadRadio = document.querySelector<HTMLInputElement>("input[name=dataset][value=lead]")!;
-    leadRadio.disabled = true;
-    document.querySelector<HTMLInputElement>("input[name=dataset][value=synthetic]")!.checked = true;
-    ui.datasetNote.textContent = "Lead export missing: run web/scripts/export_data.py";
   }
-  ui.seedField.hidden = settings().source.kind !== "synthetic";
+  if (york) setInstance({ kind: "york" }, datasetToInstance(york));
+  if (custom) {
+    // A dataset saved in this browser from an earlier visit.
+    setInstance({ kind: "custom", version: customVer }, datasetToInstance(custom));
+    prevIds = custom.sites.map((st) => st.id);
+  }
+  updateCustomUi();
   buildPeriodButtons();
   render();
   solve();
 })();
+
+// Development-only test hook (stripped from production builds): lets automated checks drive the editor.
+if (import.meta.env.DEV) {
+  (window as unknown as { __aed: unknown }).__aed = { openSiteEditor, openDemandEditor, getCustom: () => custom };
+}

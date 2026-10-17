@@ -1,19 +1,19 @@
 // Plain-SVG charts for the lead's results: lives vs budget (with Monte Carlo band) and the OAT tornado.
-// Palettes validated with the dataviz validator on the dark surface #131519 (both pairs pass).
+// Palettes validated with the dataviz validator on the white surface #ffffff (both sets pass).
 import type { KCurveRow, MCRow, OATRow } from "./data";
 
 const C = {
   ilp: "#0d9488",     // teal 600
   greedy: "#9333ea",  // violet 600
   pop: "#c2410c",     // orange 700: population-only baseline (validated as a 3-series set)
-  low: "#2563eb",     // blue 600: parameter at its low value
+  low: "#1a73e8",     // Google blue: parameter at its low value
   high: "#ea580c",    // orange 600: parameter at its high value
-  grid: "#23262d",
-  axis: "#52525b",
-  ink: "#e4e4e7",
-  ink2: "#a1a1aa",
-  ink3: "#71717a",
-  surface: "#131519",
+  grid: "#e8eaed",
+  axis: "#9aa0a6",
+  ink: "#202124",
+  ink2: "#5f6368",
+  ink3: "#80868b",
+  surface: "#ffffff",
 };
 
 const PARAM_LABELS: Record<string, [string, (v: number) => string]> = {

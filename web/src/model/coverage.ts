@@ -53,6 +53,7 @@ export interface Coverage {
   rowBand: Int32Array;
   siteCost: Float64Array;
   siteExisting: Uint8Array;
+  siteForced?: Uint8Array; // must-include sites: on, and their cost counts against the budget
 }
 
 /**
@@ -101,6 +102,7 @@ export function buildCoverage(inst: Instance, tau: Float64Array, params: Params)
     weights: Float64Array.from(weights), rowCell: Int32Array.from(rowCell),
     rowPeriod: Int32Array.from(rowPeriod), rowBand: Int32Array.from(rowBand),
     siteCost: Float64Array.from(inst.siteCost), siteExisting: Uint8Array.from(inst.siteExisting),
+    siteForced: inst.siteForced ? Uint8Array.from(inst.siteForced) : undefined,
   };
 }
 

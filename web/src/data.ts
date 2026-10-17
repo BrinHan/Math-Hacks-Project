@@ -1,5 +1,6 @@
 // The lead's campus and results, exported by web/scripts/export_data.py into public/data/lead.json.
 import type { Instance } from "./model/instance";
+import type { CustomDataset } from "./custom/dataset";
 
 export interface KCurveRow {
   K: number; ilp_lives: number; greedy_lives: number; swap_lives: number;
@@ -28,6 +29,23 @@ export interface LeadData {
     oat: OATRow[];
     placements: Record<string, number[]>;
   };
+}
+
+/** York University's Keele campus from OpenStreetMap (web/scripts/build_york_osm.mjs). */
+export interface YorkData extends CustomDataset {
+  attribution: string;
+  fetched: string;
+  campus: [number, number][];
+  footprints: { id: string; ring: [number, number][] }[];
+  stats: { buildings: number; named: number; mappedAeds: number };
+}
+
+let yorkPending: Promise<YorkData | null> | null = null;
+export function loadYork(): Promise<YorkData | null> {
+  yorkPending ??= fetch(`${import.meta.env.BASE_URL}data/york-osm.json`)
+    .then((r) => (r.ok ? (r.json() as Promise<YorkData>) : null))
+    .catch(() => null);
+  return yorkPending;
 }
 
 let pending: Promise<LeadData | null> | null = null;
