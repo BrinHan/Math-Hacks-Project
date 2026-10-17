@@ -63,3 +63,9 @@ def test_survival_vectorized():
     t = np.array([[0.0, 60.0], [120.0, 600.0]])
     s = survival(t, Params())
     assert s.shape == (2, 2) and np.all(np.diff(s.ravel()) < 0)
+
+
+def test_benefit_scales_with_shockable_fraction():
+    _, b_full = band_benefits(Params(shockable_fraction=0.5))
+    _, b_half = band_benefits(Params(shockable_fraction=0.25))
+    assert np.allclose(b_half, 0.5 * b_full)

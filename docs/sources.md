@@ -13,6 +13,8 @@ paywalls were not read; every figure below comes from the abstract or page named
 
 ## Changed values
 
+- New parameter `shockable_fraction` = 0.40 (range 0.26-0.60), multiplying every AED benefit: an AED only helps shockable-rhythm arrests. Low end = Fordyce 2017 (26.5% of all public arrests); high end = Weisfeldt 2011 (60% of bystander-witnessed public arrests).
+
 | Parameter | Old | New | Why |
 |---|---|---|---|
 | `survival_k_per_min` range | (0.03, 0.10) | (0.03, 0.12) | The base 0.10 sat on the upper edge of its range. Waalewijn et al. (source 5) report odds ratios of 0.85-0.89 per minute of delay to defibrillation, which correspond to rates of about 0.12-0.16 per minute, and Larsen et al. imply about 0.08. An upper bound of 0.12 is supported and puts the base inside the range. Base value unchanged (0.10). |
@@ -142,7 +144,7 @@ No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
     tachyarrhythmias after cardiac arrest in public versus at home. *New England
     Journal of Medicine* 364(4):313-321. PMID 21268723, doi:10.1056/NEJMoa1010663.
     URL: https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=TITLE%3A%22Ventricular%20tachyarrhythmias%20after%20cardiac%20arrest%20in%20public%20versus%20at%20home%22&resultType=core&format=json
-    Used under "For model refinement" only.
+    Supports `shockable_fraction` (added after this research; see Changed values).
 
 14. De Maio VJ, Stiell IG, Wells GA, Spaite DW (2003). Optimal defibrillation
     response intervals for maximum out-of-hospital cardiac arrest survival rates.

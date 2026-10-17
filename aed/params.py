@@ -16,6 +16,7 @@ class Params:
     ems_response_s: float = 540.0
     survival_S0: float = 0.7
     survival_k_per_min: float = 0.10
+    shockable_fraction: float = 0.40
     survival_form: str = "exp"
     band_edges_s: tuple[float, ...] = tuple(float(s) for s in range(60, 601, 60))
     max_tau_s: float = 600.0
@@ -26,6 +27,8 @@ class Params:
         edges = self.band_edges_s
         if not edges or any(b <= a for a, b in zip(edges, edges[1:])):
             raise ValueError("band_edges_s must be non-empty and strictly increasing")
+        if not 0.0 <= self.shockable_fraction <= 1.0:
+            raise ValueError("shockable_fraction must be in [0, 1]")
         if self.max_tau_s <= 0:
             raise ValueError("max_tau_s must be positive")
 
@@ -39,6 +42,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "ems_response_s": (420.0, 720.0),
     "survival_S0": (0.5, 0.8),
     "survival_k_per_min": (0.03, 0.12),
+    "shockable_fraction": (0.26, 0.60),
 }
 
 _E = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query="
@@ -103,6 +107,14 @@ CITATIONS: dict[str, str] = {
         f"CARES (2026), CARES 2025 annual report. {_CARES}2025_flipbook/inc/html/page49.html: "
         f"states survival falls 7-10% per minute without CPR or defibrillation. The 3-4%/min figure with bystander CPR "
         f"(AHA guidelines) could not be opened and is not verified; the low end 0.03 is a judgement."
+    ),
+    "shockable_fraction": (
+        "Weisfeldt et al. (2011), Ventricular tachyarrhythmias after cardiac arrest in public versus at home, "
+        "N Engl J Med 364(4):313-321. "
+        "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=TITLE%3A%22Ventricular%20tachyarrhythmias%20after%20cardiac%20arrest%20in%20public%20versus%20at%20home%22&resultType=core&format=json"
+        ": initial VF/pVT in public arrests 38% (EMS-witnessed) to 60% (bystander-witnessed); "
+        "Fordyce et al. (2017), JAMA Cardiol 2(11):1226-1235. https://pmc.ncbi.nlm.nih.gov/articles/PMC5710360"
+        ": 26.5% of all public arrests. Base 0.40 = AED-relevant (witnessed) public arrests, range 0.26-0.60."
     ),
     "survival_form": "ASSUMPTION: exponential decay; linear offered as a sensitivity check.",
     "band_edges_s": "ASSUMPTION: 1-minute time bands up to 10 minutes.",
