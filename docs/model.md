@@ -89,3 +89,15 @@ One-at-a-time sensitivity moves each parameter to its low and high value (tornad
   ambulance baseline more than a nearby AED, so the gap an AED closes grows (the benefit
   peaks near k = 0.17/min). The range for `k` (0.03-0.12) is centred below the no-CPR
   base of 0.10, so the Monte Carlo mean sits slightly below the base case.
+
+## York University Keele campus
+
+The headline results use the real Keele campus (`aed/data/york.py`, data in `data/york/`):
+86 buildings from OpenStreetMap classified by use, 16,008 classroom seats (York UIT),
+2,347 residence beds (York Housing) and York's 19 published AEDs. Demand is built per
+building from seats, floor area and beds over five weekly periods (`docs/assumptions.md`
+14-22), and travel time uses shortest walking paths on the campus footpath network.
+
+Validation compares York's 19 published AEDs with the best 19 sites the ILP would choose
+(`experiments/york_validation.py`), and lists busy buildings whose nearest published AED
+is more than 4 minutes from collapse to shock.
