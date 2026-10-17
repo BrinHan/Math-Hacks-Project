@@ -185,7 +185,7 @@ main {
 
 /* KPI strip: one panel split by hairlines, not four floating cards */
 .metrics {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r);
@@ -425,9 +425,6 @@ table.params td:last-child { color: var(--text-3); }
   .body { grid-template-columns: minmax(0, 1fr) 360px; }
 }
 @media (max-width: 1100px) {
-  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .metric:nth-child(3) { border-left: 0; }
-  .metric:nth-child(n + 3) { border-top: 1px solid var(--line); }
   .body { grid-template-columns: 1fr; }
   .charts { grid-template-columns: 1fr; }
   .mapcard { min-height: 520px; }
@@ -439,6 +436,10 @@ table.params td:last-child { color: var(--text-3); }
   #controls { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   main { padding: 12px; grid-template-rows: auto auto auto auto; }
   .mapcard { min-height: 440px; }
+}
+@media (max-width: 600px) {
+  .metrics { grid-template-columns: 1fr; }
+  .metric + .metric { border-left: 0; border-top: 1px solid var(--line); }
 }
 @media (max-width: 480px) {
   .metric { padding: 12px 14px; }
