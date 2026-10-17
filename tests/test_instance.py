@@ -35,3 +35,8 @@ def test_validate_rejects_non_bool_open():
     inst.site_open = inst.site_open.astype(int)
     with pytest.raises(ValueError, match="bool"):
         inst.validate()
+
+
+def test_summary_mentions_counts():
+    text = generate_instance(seed=0, **SMALL).summary()
+    assert "36 cells" in text and "10 sites (1 existing)" in text and "arrests/yr" in text
