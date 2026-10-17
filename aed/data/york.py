@@ -60,10 +60,12 @@ OUTDOOR_COST = 1.5
 ENTRANCE_SNAP_M = 40.0          # entrance must be this close to a kept building
 ENTRANCE_DEDUPE_M = 15.0        # merge entrances of one building closer than this
 CELL_KEEP_M = 50.0              # keep cells this close to a kept building outside the boundary
-# ASSUMPTION: within 100 m people cut through buildings and plazas, so the walking distance is
-# at most 1.3 x the straight line (the mapped footpaths miss indoor routes).
+# ASSUMPTION: people cut through buildings and plazas that the mapped footpaths miss, so the
+# walking distance is capped at 1.3 x the straight line up to 100 m, rising smoothly beyond
+# (+0.7 m per extra metre) so there is no cliff at the radius.
 SHORTCUT_M = 100.0
 SHORTCUT_DETOUR = 1.3
+SHORTCUT_RAMP = 0.7
 # ASSUMPTION: York Housing operates these apartment buildings; their beds are estimated from
 # floor area. Other unlisted housing (e.g. the privately run Quad) is excluded in the base case.
 YORK_APARTMENTS = ("Assiniboine", "Passy")
@@ -117,8 +119,9 @@ def _building_people(b: dict, beds: float) -> np.ndarray:
     return people + beds * RESIDENT_PRESENCE
 
 
-@lru_cache(maxsize=8)
-def _geometry(cell_m: float, beds: str = "york", outdoor_cabinets: bool = True):
+@lru_cache(maxsize=12)
+def _geometry(cell_m: float, beds: str = "york", outdoor_cabinets: bool = True,
+              shortcut_m: float | None = SHORTCUT_M):
     """Everything that does not depend on Params: cells, people, sites, walking distances."""
     buildings = [b for b in load_buildings() if b["kind"] != "ignore"]
     feet = load_footprints()
@@ -201,12 +204,12 @@ def _geometry(cell_m: float, beds: str = "york", outdoor_cabinets: bool = True):
         costs.append(OUTDOOR_COST)
         existing.append(False)
 
-    # York's published AEDs, already installed
-    by_id = {b["osm_id"]: b for b in buildings}
+    # York's published AEDs, already installed (matched to their building by OSM id)
+    index = {b["osm_id"]: i for i, b in enumerate(buildings)}
     for a in load_aeds():
-        b = by_id.get(a["osm_id"])
+        i = index.get(a["osm_id"], -2)
         sites.append(np.array([a["x"], a["y"]]))
-        kinds.append((b["kind"] if b else "services", -2))
+        kinds.append((buildings[i]["kind"] if i >= 0 else "services", i))
         delays.append(FLOOR_DELAY_EXISTING_S)
         costs.append(1.0)
         existing.append(True)
@@ -218,31 +221,33 @@ def _geometry(cell_m: float, beds: str = "york", outdoor_cabinets: bool = True):
     site_open = np.array([np.maximum(OPEN[k], OPEN["residence"]) if r else OPEN[k]
                           for k, r in zip(site_kind, has_beds)], dtype=bool)
     names = [_label(buildings[i]) if i >= 0 else "outdoor cabinet" for _, i in kinds]
-    for n, a in enumerate(load_aeds()):
-        names[len(names) - len(load_aeds()) + n] = a["building_name"]
 
     walk = walk_distance_matrix(graph, cell_xy, site_xy)
     straight = np.linalg.norm(cell_xy[:, None] - site_xy[None], axis=2)
-    walk = np.where(straight <= SHORTCUT_M, np.minimum(walk, SHORTCUT_DETOUR * straight), walk)
+    if shortcut_m is not None:
+        cap = SHORTCUT_DETOUR * straight + SHORTCUT_RAMP * np.maximum(0.0, straight - shortcut_m)
+        walk = np.minimum(walk, cap)
     return (cell_xy, people, site_xy, np.array(costs), np.array(delays), site_open,
             np.array(existing), site_kind, walk, names)
 
 
-def site_buildings(cell_m: float = 50.0, beds: str = "york", outdoor_cabinets: bool = True) -> list[str]:
+def site_buildings(cell_m: float = 50.0, beds: str = "york", outdoor_cabinets: bool = True,
+                   shortcut_m: float | None = SHORTCUT_M) -> list[str]:
     """Building name for every site of load_york(...) with the same arguments."""
-    return list(_geometry(float(cell_m), beds, outdoor_cabinets)[-1])
+    return list(_geometry(float(cell_m), beds, bool(outdoor_cabinets), shortcut_m)[-1])
 
 
 def load_york(params: Params | None = None, cell_m: float = 50.0, beds: str = "york",
-              outdoor_cabinets: bool = True) -> Instance:
+              outdoor_cabinets: bool = True, shortcut_m: float | None = SHORTCUT_M) -> Instance:
     """The Keele campus as an Instance; walking distances replace Euclidean x detour.
 
     beds: "york" (handbook + York-run apartments, base case), "handbook", "all" (adds
     privately run and unknown housing), "none". outdoor_cabinets=False drops the 20 cabinets.
+    shortcut_m: radius of the walking shortcut (None = mapped footpaths only).
     """
     params = params or Params()
     (cell_xy, people, site_xy, cost, delay, site_open, existing, kind, walk,
-     _) = _geometry(float(cell_m), beds, bool(outdoor_cabinets))
+     _) = _geometry(float(cell_m), beds, bool(outdoor_cabinets), shortcut_m)
     hazard = params.public_fraction / params.away_time_share
     rate = people * params.incidence_per_100k_yr / 1e5 * hazard * PERIOD_HOURS / 24.0
     return Instance(

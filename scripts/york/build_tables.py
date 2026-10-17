@@ -46,8 +46,10 @@ OVERRIDES = {
     560851644: dict(kind="academic", name="Founders College",
                     why="Only Founders footprint in OSM; carries both FC classroom seats and the 263 Founders "
                         "Residence handbook beds (residence is inside the college complex); kind kept academic"),
-    29004314: dict(kind="services", name="Central Utilities",
-                   why="Power plant: staff only, treated as services"),
+    29004314: dict(kind="ignore", name="Central Utilities",
+                   why="Power plant with a handful of operators; not a place the public gathers"),
+    29004236: dict(kind="academic", name="Physical Resources",
+                   why="Maintenance offices and workshops: office density and hours, not public services"),
     29003461: dict(kind="academic", name="Stephen E. Quinlan Building",
                    why="Tagged building=college; classrooms and offices, so academic"),
     856162986: dict(kind="academic", name="Unnamed university building near Founders College",

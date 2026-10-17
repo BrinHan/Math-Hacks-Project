@@ -27,12 +27,36 @@ def test_york_demand_plausible(york):
 
 
 def test_night_demand_is_residential(york):
-    # At night the busiest cells sit next to buildings with beds.
+    # At night the busiest cells sit next to buildings whose beds the base case counts.
+    from aed.data.york import resident_beds
     from aed.data.york_tables import load_buildings
-    beds = np.array([[b["cx"], b["cy"]] for b in load_buildings() if (b["beds"] or 0) > 0])
+    counted = set(resident_beds("york"))
+    beds = np.array([[b["cx"], b["cy"]] for b in load_buildings() if (b["name"] or f"osm {b['osm_id']}") in counted])
     night = york.cell_rate[:, PERIODS.index("night")]
     top = york.cell_xy[np.argsort(night)[-20:]]
     assert np.median(np.linalg.norm(top[:, None] - beds[None], axis=2).min(1)) < 60.0
+
+
+def test_walking_at_least_straight_line_and_no_cliff(york):
+    d = np.linalg.norm(york.cell_xy[:, None] - york.site_xy[None], axis=2)
+    assert np.all(york.walk_dist_m >= d - 1e-6)
+    band = (d > 100) & (d < 120)            # just past the shortcut radius
+    assert np.max(york.walk_dist_m[band] / d[band]) < 2.5
+
+
+@pytest.mark.parametrize("kw", [{}, {"beds": "none"}, {"outdoor_cabinets": False}])
+def test_site_labels_align(kw):
+    from aed.data.york import site_buildings
+    inst, names = load_york(**kw), site_buildings(**kw)
+    assert len(names) == inst.n_sites
+    outdoor = np.array(inst.site_kind) == "outdoor"
+    assert all((n == "outdoor cabinet") == o for n, o in zip(names, outdoor))
+
+
+def test_power_plant_is_not_demand():
+    from aed.data.york_tables import load_buildings
+    kinds = {b["name"]: b["kind"] for b in load_buildings()}
+    assert kinds["Central Utilities"] == "ignore" and kinds["Physical Resources"] == "academic"
 
 
 def test_every_building_has_a_candidate_site(york):

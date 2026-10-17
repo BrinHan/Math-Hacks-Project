@@ -20,8 +20,8 @@ osm_id,name,kind,levels,levels_source,classroom_code,seats,beds,beds_source,area
 29004010,Chemistry Building,academic,3,default,CB,318,0,,2112.4,722.9,693.1
 29004077,Calumet Residence,residence,4,default,,0,252,handbook,1496.3,570.7,573.8
 29004211,Tait McKenzie Centre,athletic,1,default,,0,0,,6430.2,579.8,813.9
-29004236,Physical Resources,services,3,default,,0,0,,4714.6,1595.2,1192.5
-29004314,Central Utilities,services,4,osm,,0,0,,2963.3,1451.7,1147.7
+29004236,Physical Resources,academic,3,default,,0,0,,4714.6,1595.2,1192.5
+29004314,Central Utilities,ignore,4,osm,,0,0,,2963.3,1451.7,1147.7
 29004532,"Health, Nursing and Environmental Studies",academic,4,osm,HNE,1002,0,,3450.0,970.4,462.6
 32518699,Vanier Residence,residence,14,osm,,0,271,handbook,513.1,1133.1,916.6
 32519050,unnamed apartments 32519050,residence,8,osm,,0,386,estimate,1687.8,1406.6,1020.9

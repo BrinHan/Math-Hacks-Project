@@ -31,6 +31,8 @@ SCENARIOS = [
     ("no residents", {"beds": "none"}, None),
     ("no outdoor cabinets", {"outdoor_cabinets": False}, None),
     ("York AEDs 20 s to reach", {}, york.FLOOR_DELAY_ENTRANCE_S),
+    ("shortcut radius 200 m", {"shortcut_m": 200.0}, None),
+    ("footpaths only, no shortcut", {"shortcut_m": None}, None),
 ]
 
 
@@ -49,11 +51,12 @@ def _steps(p: Params, load_kwargs: dict, existing_delay) -> dict:
     door = np.zeros(inst.n_sites, dtype=bool)
     candidates = ~published & (np.array(inst.site_kind) != "outdoor")
     for j in np.flatnonzero(published):
-        same = np.flatnonzero(candidates & (names == names[j]))
+        same = np.flatnonzero(candidates & (names == names[j]) & ~door)   # one AED per door
         if len(same):
             door[same[np.argmin(np.linalg.norm(inst.site_xy[same] - inst.site_xy[j], axis=1))]] = True
         else:
             door[j] = True
+    assert door.sum() == published.sum()
     best = solve_ilp(cov, int(published.sum()))
     out = {"published": evaluate(cov, published), "published_at_door": evaluate(cov, door),
            "best": best.lives}
