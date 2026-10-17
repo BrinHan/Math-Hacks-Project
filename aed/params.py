@@ -54,3 +54,14 @@ CITATIONS: dict[str, str] = {
     "band_edges_s": "ASSUMPTION: 1-minute time bands up to 10 minutes.",
     "max_tau_s": "ASSUMPTION: an AED more than 10 minutes away is treated as unreachable.",
 }
+
+
+def param_table(p: Params | None = None) -> list[dict]:
+    """One row per parameter: name, base value, (low, high) range if varied, citation."""
+    p = p or Params()
+    rows = []
+    for name, citation in CITATIONS.items():
+        lo, hi = RANGES.get(name, (None, None))
+        rows.append({"name": name, "base": getattr(p, name), "low": lo, "high": hi,
+                     "citation": citation})
+    return rows
