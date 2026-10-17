@@ -3,84 +3,132 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
-    <title>York AED Optimizer</title>
+    <meta name="color-scheme" content="dark" />
+    <title>AED Planner · York</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
   <body class="panel-open">
-    <!-- The map is the whole page; everything else floats on top of it. -->
+    <!-- The map fills the page; the panel, filters and controls float on it. -->
     <div id="map" role="region" aria-label="Map"></div>
 
-    <aside id="panel" class="panel" aria-label="AED planner">
+    <aside id="panel" class="panel" aria-label="AED sites">
       <header class="panel-head">
-        <div class="logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/><path fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 11h3.5l1.5-3 2.5 6 1.5-3H19"/></svg>
-        </div>
-        <div class="titles">
-          <h1>AED Placement</h1>
-          <p class="sub">Expected cardiac-arrest survivors vs. waiting for the ambulance</p>
-        </div>
+        <h1>Explore AED sites</h1>
+        <button type="button" id="panelToggle" class="round-btn" aria-controls="panelBody" aria-expanded="true" aria-label="Collapse list">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+        </button>
       </header>
 
-      <div class="panel-scroll">
-        <section class="psec">
-          <div class="chips" id="datasetSeg" role="radiogroup" aria-label="Dataset" hidden>
-            <label><input type="radio" name="dataset" value="lead" checked /><span>York (team model)</span></label>
-            <label id="yorkOpt" hidden><input type="radio" name="dataset" value="york" /><span>OSM sketch</span></label>
-            <label id="customOpt" hidden><input type="radio" name="dataset" value="custom" disabled /><span>My data</span></label>
-          </div>
-          <p id="datasetNote" class="note"></p>
-          <div class="btn-row">
-            <button type="button" id="uploadBtn" class="btn tonal">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4m0 0-4 4m4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-              Upload dataset</button>
-            <button type="button" id="copyBtn" class="btn outlined" title="Copy the map you are viewing into an editable dataset">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
-              Edit a copy</button>
-          </div>
-          <div class="field" id="arrestsField" hidden>
-            <label for="arrests">Public arrests per year</label>
-            <input id="arrests" type="number" min="0" step="0.1" value="5" />
-            <p class="note">Total across your demand points; their weights set the split.</p>
-            <button type="button" id="clearBtn" class="btn text danger">Delete my data</button>
-          </div>
-        </section>
+      <div class="panel-scroll" id="panelBody">
+        <label class="search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+          <input id="search" type="search" placeholder="Search buildings" autocomplete="off" aria-label="Search AED sites by building" />
+        </label>
+        <button type="button" class="summary" id="summary">
+          <span class="summary-art" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="64" height="64">
+              <rect x="6" y="14" width="40" height="40" rx="8" fill="#2b2b2b" stroke="#555555"/>
+              <path d="M14 44V34M22 44V26M30 44v-6M38 44V22" stroke="#da0037" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="46" cy="16" r="11" fill="#da0037"/>
+              <path d="M47.2 9.5l-4.3 7.2h3.1l-1.4 5.8 5.2-7.9h-3.2z" fill="#fff"/>
+            </svg>
+          </span>
+          <span class="summary-text">
+            <b id="summaryTitle">Finding the best sites…</b>
+            <span id="summaryBody">Solving for the budget you set.</span>
+          </span>
+          <svg class="summary-go" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
 
-        <section class="psec">
-          <div class="field">
-            <div class="field-head"><label for="budget">New AEDs to place</label><output id="budgetOut" class="pill">10</output></div>
-            <input id="budget" type="range" min="0" max="30" value="10" />
-            <div class="scale"><span>0</span><span>30</span></div>
-          </div>
-          <div class="field">
-            <div class="field-head"><label for="ems">Ambulance response</label><output id="emsOut" class="pill">9.0 min</output></div>
-            <input id="ems" type="range" min="7" max="12" step="0.5" value="9" />
-            <div class="scale"><span>7 min</span><span>12 min</span></div>
-          </div>
-          <div class="field">
-            <span class="flabel" id="periodsLabel">Time of day</span>
-            <div id="periods" class="chips" role="group" aria-labelledby="periodsLabel"></div>
-          </div>
-        </section>
+        <div class="field custom-field" id="arrestsField" hidden>
+          <label for="arrests">Public arrests per year</label>
+          <input id="arrests" type="number" min="0" step="0.1" value="5" />
+          <p class="note">Total across your demand points; their weights set the split.</p>
+          <button type="button" id="clearBtn" class="btn text danger">Delete my data</button>
+        </div>
 
-        <section class="psec results">
-          <div class="sec-head"><h2>Recommended AED sites</h2><span id="siteCount" class="hint"></span></div>
-          <div class="tablewrap"><table id="sites"></table></div>
-        </section>
+        <div class="list-head">
+          <span id="siteCount" aria-live="polite"></span>
+          <label class="sort">
+            <span class="sr-only">Sort sites</span>
+            <select id="sortSel">
+              <option value="rec">Most relevant</option>
+              <option value="name">Name A–Z</option>
+              <option value="open">Longest hours</option>
+              <option value="freq">Most robust</option>
+            </select>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </label>
+        </div>
+        <ul id="sites" class="site-list" aria-label="AED sites"></ul>
       </div>
     </aside>
-    <button type="button" id="panelToggle" class="panel-tab" aria-controls="panel" aria-expanded="true" aria-label="Collapse side panel">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"/></svg>
-    </button>
+
+    <!-- Scenario filters over the map. Each pill opens a popover holding the real control. -->
+    <div class="filters" id="filters" role="toolbar" aria-label="Scenario">
+      <button type="button" class="fpill" data-pop="all" aria-haspopup="dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg>
+        All</button>
+      <button type="button" class="fpill" data-pop="budget" aria-haspopup="dialog" aria-expanded="false">
+        New AEDs <b id="budgetOut">10</b><i class="caret" aria-hidden="true"></i></button>
+      <button type="button" class="fpill" data-pop="time" aria-haspopup="dialog" aria-expanded="false">
+        <span id="periodIcon" class="pill-icon" aria-hidden="true"></span><span id="periodOut">Time of day</span><i class="caret" aria-hidden="true"></i></button>
+      <button type="button" class="fpill" data-pop="ems" aria-haspopup="dialog" aria-expanded="false">
+        Ambulance <b id="emsOut">9.0 min</b><i class="caret" aria-hidden="true"></i></button>
+      <button type="button" class="fpill" data-pop="show" aria-haspopup="dialog" aria-expanded="false">
+        <span id="showOut">All AEDs</span><i class="caret" aria-hidden="true"></i></button>
+      <button type="button" class="fpill" data-pop="data" aria-haspopup="dialog" aria-expanded="false">
+        <span id="dataOut">York Keele</span><i class="caret" aria-hidden="true"></i></button>
+    </div>
+    <div id="pop" class="pop" role="dialog" aria-modal="false" hidden></div>
+
+    <!-- Controls live here while no popover holds them. -->
+    <div id="fieldStore" hidden>
+      <div class="field" id="budgetField">
+        <div class="field-head"><label for="budget">New AEDs to place</label><output id="budgetVal" class="val">10</output></div>
+        <p class="note">On top of the AEDs already installed. Each one is placed where it adds the most survivors.</p>
+        <input id="budget" type="range" min="0" max="30" value="10" />
+        <div class="scale"><span>0</span><span>30</span></div>
+      </div>
+      <div class="field" id="emsField">
+        <div class="field-head"><label for="ems">Ambulance response</label><output id="emsVal" class="val">9.0 min</output></div>
+        <p class="note">Time from the 911 call until paramedics reach the patient. A bystander AED only helps if it arrives first.</p>
+        <input id="ems" type="range" min="7" max="12" step="0.5" value="9" />
+        <div class="scale"><span>7 min</span><span>12 min</span></div>
+      </div>
+      <div class="field" id="periodField">
+        <span class="flabel" id="periodsLabel">Time of day</span>
+        <p class="note">Which buildings are unlocked, and where people are. The plan stays the same all week.</p>
+        <div id="periods" class="opts" role="radiogroup" aria-labelledby="periodsLabel"></div>
+      </div>
+      <div class="field" id="showField">
+        <span class="flabel" id="showLabel">Show in the list</span>
+        <div id="showOpts" class="opts" role="radiogroup" aria-labelledby="showLabel">
+          <button type="button" class="opt" role="radio" data-show="all" aria-checked="true"><span class="opt-dot"></span>All AEDs</button>
+          <button type="button" class="opt" role="radio" data-show="new" aria-checked="false"><span class="opt-dot"></span>Recommended only</button>
+          <button type="button" class="opt" role="radio" data-show="existing" aria-checked="false"><span class="opt-dot"></span>Installed only</button>
+        </div>
+      </div>
+      <div class="field" id="dataField">
+        <span class="flabel">Dataset</span>
+        <div class="chips" id="datasetSeg" role="radiogroup" aria-label="Dataset" hidden>
+          <label><input type="radio" name="dataset" value="lead" checked /><span>York (team model)</span></label>
+          <label id="yorkOpt" hidden><input type="radio" name="dataset" value="york" /><span>OSM sketch</span></label>
+          <label id="customOpt" hidden><input type="radio" name="dataset" value="custom" disabled /><span>My data</span></label>
+        </div>
+        <p id="datasetNote" class="note"></p>
+        <div class="btn-row">
+          <button type="button" id="uploadBtn" class="btn primary">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4m0 0-4 4m4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            Upload data</button>
+          <button type="button" id="copyBtn" class="btn neutral" title="Copy the map you are viewing into an editable dataset">Edit a copy</button>
+        </div>
+      </div>
+    </div>
 
     <div id="busy" class="busy" hidden><span class="spinner"></span><span id="busyText">Solving…</span></div>
-
-    <button type="button" id="insightsBtn" class="fab-pill" aria-controls="sheet" aria-expanded="false">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-      Insights
-    </button>
 
     <section id="sheet" class="sheet" aria-label="Insights" hidden>
       <header class="sheet-head">
@@ -101,10 +149,10 @@
               <div class="chart-head">
                 <h2>Lives saved vs budget</h2>
                 <div class="chart-legend" aria-hidden="true">
-                  <span><i class="ln" style="background:#0d9488"></i>ILP</span>
-                  <span><i class="ln dash" style="--c:#9333ea"></i>Greedy</span>
-                  <span><i class="ln dashdot" style="--c:#c2410c"></i>Population-only</span>
-                  <span><i class="sw" style="background:rgb(13 148 136 / .25)"></i>90% Monte Carlo</span>
+                  <span><i class="ln" style="background:#2dd4bf"></i>ILP</span>
+                  <span><i class="ln dash" style="--c:#c084fc"></i>Greedy</span>
+                  <span><i class="ln dashdot" style="--c:#fb923c"></i>Population-only</span>
+                  <span><i class="sw" style="background:rgb(45 212 191 / .25)"></i>90% Monte Carlo</span>
                   <span><i class="ln dot"></i>Existing only</span>
                 </div>
               </div>
@@ -114,8 +162,8 @@
               <div class="chart-head">
                 <h2>Sensitivity at K = 10</h2>
                 <div class="chart-legend" aria-hidden="true">
-                  <span><i class="sw" style="background:#1a73e8"></i>Low</span>
-                  <span><i class="sw" style="background:#ea580c"></i>High</span>
+                  <span><i class="sw" style="background:#60a5fa"></i>Low</span>
+                  <span><i class="sw" style="background:#fb923c"></i>High</span>
                 </div>
               </div>
               <div class="chart-plot"></div>
@@ -135,8 +183,9 @@
               Greedy is a fast near-optimal alternative; the Monte Carlo and sensitivity charts
               show how much the answer moves when the inputs are uncertain.</li>
           </ol>
-          <p class="note"><b>Team model</b>: the team's illustrative 30-building campus with full results.
-            <b>York U (real)</b>: Keele campus buildings from OpenStreetMap; occupancy is modelled, not measured.</p>
+          <p class="note"><b>Team model</b>: York's Keele campus with walking distances and its 19 published AEDs, with full results.
+            <b>OSM sketch</b>: Keele campus buildings straight from OpenStreetMap; occupancy is modelled, not measured.</p>
+          <p class="note">Landmark photos come from Wikimedia Commons, credited under each photo; sites without one show Esri aerial imagery.</p>
         </div>
         <div role="tabpanel" data-panel="params" hidden>
           <div class="tablewrap"><table id="params" class="params"></table></div>

@@ -50,6 +50,19 @@ export function loadYork(): Promise<YorkData | null> {
   return yorkPending;
 }
 
+/** A landmark photo for a building, from Wikimedia Commons (web/scripts/build_photos.mjs). */
+export interface Photo { src: string; page: string; title: string; artist: string; license: string; how: "name" }
+
+let photosPending: Promise<Record<string, Photo>> | null = null;
+/** Building name -> photo; empty when the index has not been built. */
+export function loadPhotos(): Promise<Record<string, Photo>> {
+  photosPending ??= fetch(`${import.meta.env.BASE_URL}data/photos.json`)
+    .then((r) => (r.ok ? r.json() : { photos: {} }))
+    .then((d: { photos?: Record<string, Photo> }) => d.photos ?? {})
+    .catch(() => ({}));
+  return photosPending;
+}
+
 let pending: Promise<LeadData | null> | null = null;
 
 /** Fetch once; resolves null when the export has not been generated yet. */

@@ -7,7 +7,7 @@ import { evaluate } from "./model/coverage";
 import { metresToLatLon } from "./model/instance";
 import { CITATIONS } from "./model/params";
 import type { Solution } from "./model/solvers";
-import { LeadData, leadInstance, loadLead, loadYork, YorkData } from "./data";
+import { LeadData, leadInstance, loadLead, loadPhotos, loadYork, Photo, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
 import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
@@ -24,9 +24,10 @@ const BANDS = [
   { edge: Infinity, colour: "#fc8d59", label: "6 min – EMS" },
 ];
 const UNREACHED = "#d73027";
-const ACCENT = "#1a73e8"; // Google blue: selection, active states and primary actions only
-// Recommended AEDs are dark so they never read as a time band; existing ones are blue.
-const SITE = { existing: "#1a73e8", new: "#202124", locked: "#9aa0a6" };
+const ACCENT = "#ededed"; // selection ring on the map
+// Recommended AEDs carry the accent red; installed ones are light; both read apart from the time bands.
+const SITE = { existing: "#ededed", new: "#da0037", locked: "#6a6a6a" };
+const OUTLINE = "#171717"; // marker outline against the dark map
 const MUST = "#f9ab00"; // dashed outline on must-include sites
 // Muted, low-chroma tags so building type reads as metadata, not as another status colour.
 const KIND_COLOURS: Record<string, string> = {
@@ -62,16 +63,23 @@ const periodIcon = (p: string, size?: number) => svg(PERIOD_ICON_PATHS[p] ?? PER
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const ui = {
   budget: $<HTMLInputElement>("budget"),
-  budgetOut: $<HTMLOutputElement>("budgetOut"),
+  budgetOut: $("budgetOut"),
+  budgetVal: $<HTMLOutputElement>("budgetVal"),
   ems: $<HTMLInputElement>("ems"),
-  emsOut: $<HTMLOutputElement>("emsOut"),
+  emsOut: $("emsOut"),
+  emsVal: $<HTMLOutputElement>("emsVal"),
   periods: $("periods"),
   uploadBtn: $<HTMLButtonElement>("uploadBtn"),
   copyBtn: $<HTMLButtonElement>("copyBtn"),
   clearBtn: $<HTMLButtonElement>("clearBtn"),
   arrestsField: $("arrestsField"),
   arrests: $<HTMLInputElement>("arrests"),
-  sites: $<HTMLTableElement>("sites"),
+  sites: $<HTMLUListElement>("sites"),
+  sortSel: $<HTMLSelectElement>("sortSel"),
+  search: $<HTMLInputElement>("search"),
+  summary: $<HTMLButtonElement>("summary"),
+  summaryTitle: $("summaryTitle"),
+  summaryBody: $("summaryBody"),
   params: $<HTMLTableElement>("params"),
   busy: $("busy"),
   busyText: $("busyText"),
@@ -85,13 +93,17 @@ const ui = {
   tornado: $("tornado"),
 };
 
-type SortKey = "site" | "open" | "freq";
+type SortKey = "rec" | "name" | "open" | "freq";
+type Show = "all" | "new" | "existing";
 const state = {
   period: 0,
   solution: null as Solution | null,
-  selected: null as number | null,
-  sort: { key: "site" as SortKey, dir: 1 },
+  selected: null as number | null, // the expanded site in the list (and ringed on the map)
+  sort: "rec" as SortKey,
+  show: "all" as Show,
+  query: "",
 };
+let photos: Record<string, Photo> = {};
 const solveCache = new Map<string, Solution>();
 
 let lead: LeadData | null = null; // the lead's exported campus + results, if present
@@ -117,12 +129,18 @@ const isCustom = () => settings().source.kind === "custom";
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 // ---------- map ----------
-const map = L.map("map", { preferCanvas: true, zoomControl: false, maxBoundsViscosity: 1.0 });
-// Esri World Street Map (no API key): a familiar, Google-like street base under the overlay.
-L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
-  maxZoom: 19, maxNativeZoom: 18,
+const map = L.map("map", { preferCanvas: true, zoomControl: false, maxBoundsViscosity: 1.0, zoomSnap: 0.5 });
+// Esri Dark Gray Canvas (no API key): a quiet dark base, with its street labels in a pane above the
+// reach rings so names stay readable.
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
+L.tileLayer(`${ESRI}/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
+  maxZoom: 19, maxNativeZoom: 16,
   attribution: '&copy; Esri &middot; &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
+map.createPane("labels");
+map.getPane("labels")!.style.zIndex = "390";
+map.getPane("labels")!.style.pointerEvents = "none";
+L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 19, maxNativeZoom: 16, pane: "labels" }).addTo(map);
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 L.control.zoom({ position: "bottomright" }).addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
@@ -145,7 +163,7 @@ const candidateLayer = L.layerGroup();             // candidate sites without an
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
 const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
-// Google-style "Layers" button (bottom left) with a popover of toggles.
+// "Map layers" card (top right) with a popover of toggles.
 const LAYERS: [string, L.LayerGroup][] = [
   ["AED reach zones", heatLayer],
   ["Recommended AEDs", newLayer],
@@ -154,13 +172,14 @@ const LAYERS: [string, L.LayerGroup][] = [
   ["Demand points", demandLayer],
   ["Building outlines", buildingLayer],
 ];
-const layersCtl = new L.Control({ position: "bottomleft" });
+const layersCtl = new L.Control({ position: "topright" });
 layersCtl.onAdd = () => {
   const wrap = L.DomUtil.create("div", "layers-ctl");
   const btn = Object.assign(document.createElement("button"), { type: "button", className: "layers-btn" });
   btn.setAttribute("aria-expanded", "false");
   btn.setAttribute("aria-haspopup", "true");
-  btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5z"/><path d="m2 13 10 5 10-5"/></svg>Layers';
+  btn.setAttribute("aria-label", "Map layers");
+  btn.innerHTML = '<span class="ltext">Map layers</span><span class="lthumb" aria-hidden="true"></span>';
   const pop = document.createElement("div");
   pop.className = "layers-pop";
   pop.hidden = true;
@@ -176,7 +195,7 @@ layersCtl.onAdd = () => {
   btn.addEventListener("click", () => setOpen(pop.hidden));
   document.addEventListener("click", (e) => { if (!wrap.contains(e.target as Node)) setOpen(false); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
-  wrap.append(pop, btn);
+  wrap.append(btn, pop);
   L.DomEvent.disableClickPropagation(wrap);
   L.DomEvent.disableScrollPropagation(wrap);
   return wrap;
@@ -212,11 +231,15 @@ function lockToData(animate = false) {
 /** Screen space taken by floating UI, so fitted data lands in the visible part of the map. */
 function viewPadding(): { tl: L.Point; br: L.Point } {
   const open = document.body.classList.contains("panel-open");
-  const panel = document.getElementById("panel")!.getBoundingClientRect();
+  const mapTop = map.getContainer().getBoundingClientRect().top;
+  const filtersBottom = document.getElementById("filters")!.getBoundingClientRect().bottom - mapTop;
   if (window.innerWidth <= 700) {
-    return { tl: L.point(16, 64), br: L.point(16, (open ? window.innerHeight - panel.top : 56) + 24) };
+    // The bottom sheet's final height, not its mid-slide position.
+    const sheet = open ? window.innerHeight * 0.58 : 76;
+    return { tl: L.point(16, filtersBottom + 12), br: L.point(16, sheet + 24) };
   }
-  return { tl: L.point(open ? panel.right + 36 : 96, 64), br: L.point(72, 96) };
+  const panelRight = document.getElementById("panel")!.getBoundingClientRect().right;
+  return { tl: L.point(open ? panelRight + 36 : 96, filtersBottom + 24), br: L.point(140, 48) };
 }
 // The container can change size after first paint (fonts, layout breakpoints); refit then.
 let lastSize = "";
@@ -251,7 +274,7 @@ const legend = new L.Control({ position: "bottomleft" });
 legend.onAdd = () => {
   const div = L.DomUtil.create("div", "legend");
   const item = (colour: string, label: string, dot = false) =>
-    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #fff,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
+    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #171717,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
   div.innerHTML =
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
     `<div class="legend-body"><h3>AED reached and back within</h3><ul>` +
@@ -266,7 +289,7 @@ legend.onAdd = () => {
     toggle.setAttribute("aria-expanded", String(!c));
   };
   toggle.addEventListener("click", () => setCollapsed(!div.classList.contains("collapsed")));
-  setCollapsed(window.matchMedia("(max-width: 600px)").matches); // starts folded on phones
+  setCollapsed(window.matchMedia("(max-width: 700px), (max-height: 860px)").matches); // starts folded unless there is room
   L.DomEvent.disableClickPropagation(div);
   L.DomEvent.disableScrollPropagation(div);
   return div;
@@ -293,14 +316,14 @@ function drawMap() {
   if (source.kind === "lead" && lead?.footprints?.length) {
     // The York team model's building footprints (OpenStreetMap), under the heatmap.
     for (const fp of lead.footprints) {
-      L.polygon(fp.ring, { color: "#5f6368", weight: 1, opacity: 0.8, fillColor: "#5f6368", fillOpacity: 0.06, interactive: false })
+      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false })
         .bindTooltip(esc(fp.name ?? ""), { sticky: true }).addTo(buildingLayer);
     }
   } else if (source.kind === "york" && york) {
     // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
-    L.polygon(york.campus, { color: "#5f6368", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
+    L.polygon(york.campus, { color: "#8a8a8a", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
     for (const fp of york.footprints) {
-      L.polygon(fp.ring, { color: "#5f6368", weight: 1, opacity: 0.8, fillColor: "#5f6368", fillOpacity: 0.06, interactive: false }).addTo(buildingLayer);
+      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false }).addTo(buildingLayer);
     }
   }
   markers.clear();
@@ -324,7 +347,7 @@ function drawMap() {
     }
   }
   for (let i = 0; i < inst.nCells; i++) {
-    const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: "#ffffff", weight: editable ? 1 : 0, fillColor: "#5f6368", fillOpacity: 0.85 })
+    const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: OUTLINE, weight: editable ? 1 : 0, fillColor: "#9e9e9e", fillOpacity: 0.85 })
       .bindTooltip("Demand point").addTo(demandLayer);
     if (editable) dot.on("click", (e) => { L.DomEvent.stop(e); openDemandEditor(i); });
   }
@@ -338,14 +361,14 @@ function drawMap() {
       const m = L.circleMarker(pos, {
         radius: MARKER_R, fillOpacity: 1, fillColor: open ? SITE[role] : SITE.locked,
         // Must-include sites get a dashed white outline so they read as a planner's pin.
-        color: forced ? MUST : "#ffffff", weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
+        color: forced ? MUST : OUTLINE, weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
       }).bindTooltip(`<b>${name(j)}</b> · ${role === "new" ? (forced ? "Must-include" : "Recommended") : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
         .addTo(role === "existing" ? existingLayer : newLayer);
-      if (role === "new") markers.set(j, m);
-      wireSite(m, j, role === "new");
+      markers.set(j, m);
+      wireSite(m, j, true);
     } else {
       const m = L.circleMarker(pos, {
-        radius: editable ? 4.5 : 3, color: "#ffffff", weight: 1, fillColor: "#80868b", fillOpacity: open ? 0.9 : 0.35,
+        radius: editable ? 4.5 : 3, color: OUTLINE, weight: 1, fillColor: "#9e9e9e", fillOpacity: open ? 0.9 : 0.35,
       }).bindTooltip(`${name(j)} · candidate<br>${cap(inst.siteKind[j])}`).addTo(candidateLayer);
       wireSite(m, j, false);
     }
@@ -386,22 +409,38 @@ function drawSelection() {
   m.bringToFront();
 }
 
+/** Expand a site in the list (or fold it if it is already open) and ring it on the map. */
 function selectSite(j: number | null, opts: { pan?: boolean; scrollRow?: boolean } = {}) {
   state.selected = state.selected === j ? null : j;
   drawSelection();
-  ui.sites.querySelectorAll<HTMLTableRowElement>("tbody tr[data-site]").forEach((tr) => {
-    const on = Number(tr.dataset.site) === state.selected;
-    tr.classList.toggle("selected", on);
-    tr.setAttribute("aria-selected", String(on));
-    if (on && opts.scrollRow) tr.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (state.selected !== null && !document.body.classList.contains("panel-open")) setPanel(true, false);
+  let opened: HTMLElement | null = null;
+  ui.sites.querySelectorAll<HTMLLIElement>("li[data-site]").forEach((li) => {
+    const on = Number(li.dataset.site) === state.selected;
+    if (on && !li.querySelector(".detail")) li.querySelector(".inner")!.replaceChildren(buildDetail(Number(li.dataset.site)));
+    li.classList.toggle("open", on);
+    li.querySelector(".site-row")!.setAttribute("aria-expanded", String(on));
+    if (on) opened = li;
   });
-  const m = state.selected === null ? undefined : markers.get(state.selected);
-  if (m && opts.pan) {
-    const zoom = Math.max(map.getZoom(), map.getMinZoom() + 1);
-    // Jump instead of flying when motion is unwanted or cannot play (hidden page: no animation frames).
-    if (document.hidden || reducedMotion.matches) map.setView(m.getLatLng(), zoom, { animate: false });
-    else map.flyTo(m.getLatLng(), zoom, { duration: 0.6 });
+  // Selecting from the map can pick a site the list filter hides: redraw so it shows.
+  if (state.selected !== null && !opened) { drawList(); opened = ui.sites.querySelector<HTMLElement>("li.open"); }
+  if (opened && opts.scrollRow) {
+    const li = opened as HTMLElement;
+    // Wait for the expansion to settle so the scroll lands on the final layout.
+    setTimeout(() => li.scrollIntoView({ block: "start", behavior: reducedMotion.matches ? "auto" : "smooth" }), reducedMotion.matches ? 0 : 360);
   }
+  const m = state.selected === null ? undefined : markers.get(state.selected);
+  if (m && opts.pan) flyToSite(m.getLatLng());
+}
+
+function flyToSite(at: L.LatLng) {
+  const zoom = Math.max(map.getZoom(), map.getMinZoom() + 1);
+  // Centre the site in the part of the map the panel does not cover.
+  const { tl, br } = viewPadding();
+  const centre = map.unproject(map.project(at, zoom).subtract(L.point((tl.x - br.x) / 2, (tl.y - br.y) / 2)), zoom);
+  // Jump instead of flying when motion is unwanted or cannot play (hidden page: no animation frames).
+  if (document.hidden || reducedMotion.matches) map.setView(centre, zoom, { animate: false });
+  else map.flyTo(centre, zoom, { duration: 0.6 });
 }
 
 function hoverSite(j: number | null) {
@@ -455,7 +494,7 @@ function updateCustomUi() {
     ui.budget.max = String(Math.max(30, Math.min(200, custom.sites.length)));
   } else {
     ui.budget.max = "30";
-    if (Number(ui.budget.value) > 30) { ui.budget.value = "30"; ui.budgetOut.textContent = "30"; }
+    if (Number(ui.budget.value) > 30) ui.budget.value = "30";
     if (york && settings().source.kind === "york") {
       ui.datasetNote.textContent = `Quick sketch: ${york.stats.buildings} OpenStreetMap buildings · ${york.stats.mappedAeds} AED mapped there · not the team model`;
     } else if (lead && datasetChoice() === "lead") {
@@ -472,7 +511,10 @@ function updateCustomUi() {
   ui.customOpt.hidden = !custom;
   ui.yorkOpt.hidden = !york;
   ui.budget.parentElement!.querySelector(".scale span:last-child")!.textContent = ui.budget.max;
-  paintRange(ui.budget);
+  const kind = settings().source.kind;
+  document.getElementById("dataOut")!.textContent = kind === "custom" ? (custom?.name || "My data")
+    : kind === "york" ? "OSM sketch" : kind === "lead" ? (lead?.source.campus === "york" ? "York Keele" : "Team campus") : "Placeholder campus";
+  syncRangeLabels();
 }
 
 function selectDataset(value: "lead" | "york" | "custom") {
@@ -592,7 +634,7 @@ function showInspector(content: HTMLElement, at: L.LatLngExpression) {
   inspector.hidden = false;
   editRing?.remove();
   editRing = L.circleMarker(at, {
-    renderer: ringRenderer, pane: "selection", radius: 12, color: "#202124", weight: 2, dashArray: "4 3",
+    renderer: ringRenderer, pane: "selection", radius: 12, color: "#ededed", weight: 2, dashArray: "4 3",
     fill: false, interactive: false,
   }).addTo(map);
   // Bring the edited item into view if the panel or an edge hides it: shift the map so the item sits
@@ -768,107 +810,303 @@ ui.arrests.addEventListener("input", () => {
 });
 let arrestsT = 0;
 
-// ---------- panels ----------
-function availBadges(open: boolean[], periods: string[]) {
-  const title = periods.map((p, k) => `${PERIOD_NAMES[p] ?? cap(p)}: ${open[k] ? "open" : "locked"}`).join(" · ");
-  return `<span class="avail" title="${title}" aria-label="${title}">` +
-    periods.map((p, k) => `<span class="${open[k] ? "on" : ""}">${periodIcon(p, 13)}</span>`).join("") + "</span>";
+// ---------- AED site list ----------
+const fmtLives = (v: number) => (Math.abs(v) < 0.0005 ? "0.000" : v.toFixed(3));
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+// Aerial imagery (Esri World Imagery, no key) as a fallback "photo": tiles laid out around the site.
+const AERIAL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile";
+function aerialTiles(lat: number, lon: number, z: number, w: number, h: number): HTMLElement {
+  const n = 256 * 2 ** z, rad = (lat * Math.PI) / 180;
+  const px = ((lon + 180) / 360) * n;
+  const py = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
+  const box = document.createElement("div");
+  // A fixed-size box centred in its frame, so any frame size crops evenly around the site.
+  box.style.cssText = `position:absolute;left:50%;top:50%;width:${w}px;height:${h}px;transform:translate(-50%,-50%)`;
+  const x0 = px - w / 2, y0 = py - h / 2;
+  for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + h) / 256); ty++) {
+    for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + w) / 256); tx++) {
+      const img = Object.assign(document.createElement("img"), { src: `${AERIAL}/${z}/${ty}/${tx}`, alt: "", loading: "lazy", decoding: "async" });
+      img.style.cssText = `position:absolute;left:${Math.round(tx * 256 - x0)}px;top:${Math.round(ty * 256 - y0)}px;width:256px;height:256px;max-width:none`;
+      box.append(img);
+    }
+  }
+  return box;
 }
+// Commons serves standard thumbnail widths; the list uses a small one.
+const thumbSrc = (src: string) => src.replace(/\/\d+px-([^/]+)$/, "/330px-$1");
 
-const COLUMNS: { key: SortKey; label: string; cls?: string; title?: string; leadOnly?: boolean }[] = [
-  { key: "site", label: "Site" },
-  { key: "open", label: "Open" },
-  { key: "freq", label: "Freq", cls: "right", leadOnly: true,
-    title: "Share of the lead's Monte Carlo scenarios (K = 10) whose re-optimized plan uses this site" },
-];
+interface SiteRow { j: number; name: string; label: string; role: "new" | "existing"; open: boolean[]; nOpen: number; openNow: boolean; freq: number | null }
 
-function drawTable() {
+function siteRows(): SiteRow[] {
   const { source, emsResponseS } = settings();
   const { inst } = scenario(source, emsResponseS);
   const x = state.solution?.x ?? inst.siteExisting;
   const P = inst.periods.length;
-  const freq = source.kind === "lead" && lead
-    ? new Map(lead.results.siteFreq.map((r) => [r.site_id, r.freq])) : null;
-  const cols = COLUMNS.filter((c) => !c.leadOnly || freq);
-  if (!cols.some((c) => c.key === state.sort.key)) state.sort = { key: "site", dir: 1 };
-
-  type Row = { j: number; name: string; open: boolean[]; nOpen: number; freq: number };
-  const rows: Row[] = [];
+  const freq = source.kind === "lead" && lead ? new Map(lead.results.siteFreq.map((r) => [r.site_id, r.freq])) : null;
+  const rows: SiteRow[] = [];
   for (let j = 0; j < inst.nSites; j++) {
-    if (!x[j] || inst.siteExisting[j]) continue;
+    if (!x[j]) continue;
     const open = inst.periods.map((_, p) => inst.siteOpen[j * P + p] === 1);
-    rows.push({ j, name: inst.siteName?.[j] ?? "", open, nOpen: open.filter(Boolean).length, freq: freq?.get(j) ?? 0 });
+    const role = inst.siteExisting[j] ? "existing" : "new";
+    rows.push({ j, name: inst.siteName?.[j] ?? `Site ${j}`, label: "", role, open, nOpen: open.filter(Boolean).length,
+      openNow: open[state.period], freq: role === "new" && freq ? freq.get(j) ?? 0 : null });
   }
-  if (state.selected !== null && !rows.some((r) => r.j === state.selected)) state.selected = null;
+  // Several sites can share a building: number them so each row is distinct.
+  const seen = new Map<string, number>(), total = new Map<string, number>();
+  for (const r of rows) total.set(r.name, (total.get(r.name) ?? 0) + 1);
+  for (const r of [...rows].sort((a, b) => a.j - b.j)) {
+    const k = (seen.get(r.name) ?? 0) + 1;
+    seen.set(r.name, k);
+    r.label = total.get(r.name)! > 1 ? `No. ${k}` : "";
+  }
+  return rows;
+}
 
-  const { key, dir } = state.sort;
-  const by: Record<SortKey, (r: Row) => number | string> = {
-    // Named datasets sort by name; the team campus only has numbers.
-    site: (r) => (inst.siteName ? r.name.toLowerCase() : r.j), open: (r) => r.nOpen, freq: (r) => r.freq,
+function drawList() {
+  const { source, emsResponseS } = settings();
+  const { inst } = scenario(source, emsResponseS);
+  const all = siteRows();
+  if (state.selected !== null && !all.some((r) => r.j === state.selected)) state.selected = null;
+  const q = state.query.trim().toLowerCase();
+  const rows = all.filter((r) => (state.show === "all" || r.role === state.show || r.j === state.selected) &&
+    (!q || r.name.toLowerCase().includes(q) || inst.siteKind[r.j].includes(q)));
+  const by: Record<SortKey, (a: SiteRow, b: SiteRow) => number> = {
+    // Recommended first (most robust first), then installed ones by name.
+    rec: (a, b) => (a.role === b.role ? (b.freq ?? 0) - (a.freq ?? 0) || a.name.localeCompare(b.name) : a.role === "new" ? -1 : 1),
+    name: (a, b) => a.name.localeCompare(b.name),
+    open: (a, b) => b.nOpen - a.nOpen || a.name.localeCompare(b.name),
+    freq: (a, b) => (b.freq ?? -1) - (a.freq ?? -1) || a.name.localeCompare(b.name),
   };
-  rows.sort((a, b) => {
-    const va = by[key](a), vb = by[key](b);
-    return (va < vb ? -1 : va > vb ? 1 : a.j - b.j) * dir;
-  });
+  rows.sort((a, b) => by[state.sort](a, b) || a.j - b.j);
+  ui.sortSel.querySelector<HTMLOptionElement>('option[value="freq"]')!.hidden = source.kind !== "lead";
 
-  const head = cols.map((c) => {
-    const active = c.key === key;
-    const sort = active ? (dir > 0 ? "ascending" : "descending") : "none";
-    return `<th class="${c.cls ?? ""}" aria-sort="${sort}"${c.title ? ` title="${c.title}"` : ""}><button type="button" class="sort ${active ? "on" : ""}" data-key="${c.key}">` +
-      `${c.label}<span class="caret" aria-hidden="true">${active ? (dir > 0 ? "▲" : "▼") : "▲"}</span></button></th>`;
-  }).join("");
+  const nNew = all.filter((r) => r.role === "new").length;
+  ui.siteCount.textContent = rows.length === all.length
+    ? `${plural(all.length, "AED")} · ${nNew} new`
+    : `${rows.length} of ${plural(all.length, "AED")}`;
 
-  const body = rows.map((r) => {
+  const chev = '<svg class="chev" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+  ui.sites.innerHTML = rows.map((r) => {
     const sel = r.j === state.selected;
-    return `<tr data-site="${r.j}" tabindex="0" class="${sel ? "selected" : ""}" aria-selected="${sel}">` +
-      (inst.siteName ? `<td class="site-name" title="Site #${r.j}">${esc(inst.siteName[r.j])}</td>` : `<td class="site-id">${r.j}</td>`) +
-      `<td>${availBadges(r.open, inst.periods)}</td>` +
-      (freq ? `<td class="freq${r.freq >= 0.5 ? " strong" : ""}" title="Chosen in ${(r.freq * 100).toFixed(1)}% of the lead's Monte Carlo scenarios">${Math.round(r.freq * 100)}%</td>` : "") +
-      "</tr>";
-  }).join("");
+    const photo = photos[r.name];
+    const pin = r.openNow ? r.role : "locked";
+    const tag = r.role === "new" ? '<span class="tag new">Recommended</span>' : '<span class="tag existing">Installed</span>';
+    const hours = r.openNow ? `Open ${r.nOpen}/${r.open.length} periods` : "Locked right now";
+    const robust = r.freq !== null ? ` · ${Math.round(r.freq * 100)}% robust` : "";
+    return `<li class="site${sel ? " open" : ""}" data-site="${r.j}">` +
+      `<button type="button" class="site-row" aria-expanded="${sel}" aria-controls="detail-${r.j}">` +
+      `<span class="thumb" data-thumb="${photo ? "photo" : "aerial"}">${photo ? `<img class="cover" src="${esc(thumbSrc(photo.src))}" alt="" loading="lazy" decoding="async">` : ""}<i class="pin ${pin}"></i></span>` +
+      `<span class="site-main"><span class="site-name">${esc(r.name)}${r.label ? ` <small>${r.label}</small>` : ""}</span>` +
+      `<span class="site-meta">${tag}<span>${esc(cap(inst.siteKind[r.j]))}</span></span>` +
+      `<span class="site-sub">${hours}${robust}</span></span>${chev}</button>` +
+      `<div class="site-detail" id="detail-${r.j}" role="region" aria-label="${esc(r.name)} details"><div class="inner"></div></div></li>`;
+  }).join("") || `<li class="empty">${q ? `No AEDs match “${esc(state.query)}”` : "No AEDs to show"}</li>`;
 
-  ui.siteCount.textContent = rows.length ? `${rows.length} site${rows.length === 1 ? "" : "s"}` : "";
-  ui.sites.innerHTML = `<thead><tr>${head}</tr></thead><tbody>` +
-    (body || `<tr><td colspan="${cols.length}" class="empty">No new AEDs at this budget</td></tr>`) + "</tbody>";
+  // Aerial thumbnails for sites without a photo, and the detail of the open site.
+  ui.sites.querySelectorAll<HTMLElement>('.thumb[data-thumb="aerial"]').forEach((t) => {
+    const j = Number(t.closest<HTMLElement>("li")!.dataset.site);
+    const [lat, lon] = metresToLatLon(inst.siteXY[2 * j], inst.siteXY[2 * j + 1], inst.originLatLon);
+    t.prepend(aerialTiles(lat, lon, 18, 96, 96));
+  });
+  const open = ui.sites.querySelector<HTMLElement>("li.open .inner");
+  if (open && state.selected !== null) open.append(buildDetail(state.selected));
+}
+
+/** The expanded view of one site: photo carousel, key numbers, opening hours and actions. */
+function buildDetail(j: number): HTMLElement {
+  const { source, emsResponseS } = settings();
+  const { inst, cov, params } = scenario(source, emsResponseS);
+  const row = siteRows().find((r) => r.j === j)!;
+  const x = state.solution?.x ?? inst.siteExisting;
+  const [lat, lon] = metresToLatLon(inst.siteXY[2 * j], inst.siteXY[2 * j + 1], inst.originLatLon);
+  const photo = photos[row.name];
+
+  // What this AED adds: expected survivors per year with it, minus without it.
+  const without = Uint8Array.from(x);
+  without[j] = 0;
+  const adds = evaluate(cov, x) - evaluate(cov, without);
+  // How far a bystander can fetch it and get back within four minutes (same model as the map rings).
+  const perMetre = (2 * params.detourFactor) / params.walkSpeedMps;
+  const reach = Math.max(0, (Math.min(240, emsResponseS) - params.dispatchDelayS - inst.siteFloorDelay[j]) / perMetre);
+
+  const el = document.createElement("div");
+  el.className = "detail";
+  const slides: string[] = [];
+  if (photo) slides.push(`<div class="slide"><img class="photo" src="${esc(photo.src)}" alt="${esc(photo.title)}" decoding="async"></div>`);
+  slides.push('<div class="slide aerial" role="img" aria-label="Aerial view of the site"><span class="target" aria-hidden="true"></span></div>');
+  const credits = [
+    ...(photo ? [`Photo: <a href="${esc(photo.page)}" target="_blank" rel="noopener">${esc(photo.artist)}</a>${photo.license ? ` · ${esc(photo.license)}` : ""} · Wikimedia Commons`] : []),
+    "Aerial imagery © Esri, Maxar, Earthstar Geographics",
+  ];
+  const arrow = (d: string) => `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+  const robust = row.freq !== null ? ` · chosen in ${Math.round(row.freq * 100)}% of uncertainty runs` : "";
+  el.innerHTML =
+    `<div class="hero"><span class="badge"><i class="pin ${row.openNow ? row.role : "locked"}"></i>${row.role === "new" ? "Recommended site" : "Installed AED"}</span>` +
+    `<div class="slides">${slides.join("")}</div>` +
+    (slides.length > 1
+      ? `<button type="button" class="nav prev" aria-label="Previous image">${arrow("M19 12H5m6-6-6 6 6 6")}</button>` +
+        `<button type="button" class="nav next" aria-label="Next image">${arrow("M5 12h14m-6-6 6 6-6 6")}</button>` +
+        `<div class="dots" aria-hidden="true">${slides.map(() => "<i></i>").join("")}</div>`
+      : "") +
+    `</div><p class="credit"></p>` +
+    `<h3>${esc(row.name)}${row.label ? ` <small class="note">${row.label}</small>` : ""}</h3>` +
+    `<p class="sub">${esc(cap(inst.siteKind[j]))}${robust}</p>` +
+    `<dl class="stats">` +
+    `<div><dt>Adds per year</dt><dd>+${fmtLives(adds)} <small>lives</small></dd></div>` +
+    `<div><dt>4-min reach</dt><dd>${reach > 0 ? `~${Math.round(reach / 10) * 10} m` : "—"}</dd></div>` +
+    `<div><dt>Unlocked</dt><dd>${row.nOpen} <small>of ${row.open.length} periods</small></dd></div></dl>` +
+    `<h4 class="hours-h">When it can be reached</h4><ul class="hours">` +
+    inst.periods.map((p, k) => `<li class="${k === state.period ? "now" : ""}">${periodIcon(p, 18)}<span class="h-name">${PERIOD_NAMES[p] ?? cap(p)}` +
+      `<small>${PERIOD_HOURS_TEXT[p] ?? ""}${k === state.period ? " · now" : ""}</small></span><span class="state${row.open[k] ? "" : " off"}">${row.open[k] ? "Open" : "Locked"}</span></li>`).join("") +
+    `</ul><div class="actions"><button type="button" class="btn filled" data-act="fly">Show on map</button>` +
+    `<a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=${lat.toFixed(6)},${lon.toFixed(6)}&travelmode=walking" target="_blank" rel="noopener">Walking directions</a></div>`;
+
+  el.querySelector(".slide.aerial")!.prepend(aerialTiles(lat, lon, 18, 768, 512));
+  el.querySelector<HTMLButtonElement>('[data-act="fly"]')!.addEventListener("click", () => {
+    const m = markers.get(j);
+    if (m) flyToSite(m.getLatLng());
+    if (window.innerWidth <= 700) setPanel(false, false);
+  });
+  wireCarousel(el.querySelector<HTMLElement>(".hero")!, el.querySelector<HTMLElement>(".credit")!, credits);
+  return el;
+}
+
+/**
+ * Photo carousel: arrows, arrow keys, and a 1:1 drag that keeps the grab offset, rubber-bands at
+ * the ends and uses the release velocity to pick the photo it lands on (a flick pages).
+ */
+function wireCarousel(hero: HTMLElement, credit: HTMLElement, credits: string[]) {
+  const strip = hero.querySelector<HTMLElement>(".slides")!;
+  const n = strip.children.length;
+  const prev = hero.querySelector<HTMLButtonElement>(".prev"), next = hero.querySelector<HTMLButtonElement>(".next");
+  const dots = [...hero.querySelectorAll<HTMLElement>(".dots i")];
+  let i = 0;
+  const go = (k: number, animate = true) => {
+    i = Math.max(0, Math.min(n - 1, k));
+    strip.style.transition = animate ? "" : "none";
+    strip.style.transform = `translateX(${-i * 100}%)`;
+    if (prev) prev.disabled = i === 0;
+    if (next) next.disabled = i === n - 1;
+    dots.forEach((d, k2) => d.classList.toggle("on", k2 === i));
+    credit.innerHTML = credits[i];
+  };
+  go(0, false);
+  if (n < 2) return;
+  prev!.addEventListener("click", () => go(i - 1));
+  next!.addEventListener("click", () => go(i + 1));
+  hero.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") { e.preventDefault(); go(i - 1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); go(i + 1); }
+  });
+  let drag: { id: number; x0: number; w: number; hist: { x: number; t: number }[]; moved: boolean } | null = null;
+  strip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    drag = { id: e.pointerId, x0: e.clientX, w: hero.clientWidth, hist: [{ x: e.clientX, t: e.timeStamp }], moved: false };
+  });
+  strip.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x0;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 8) return; // a little hysteresis before committing to a drag
+      drag.moved = true;
+      strip.setPointerCapture(e.pointerId);
+    }
+    drag.hist.push({ x: e.clientX, t: e.timeStamp });
+    if (drag.hist.length > 5) drag.hist.shift();
+    // Rubber-band past the first and last image instead of a hard stop.
+    const band = (o: number) => (o * 0.55 * drag!.w) / (drag!.w + 0.55 * o);
+    let off = -i * drag.w + dx;
+    const min = -(n - 1) * drag.w;
+    if (off > 0) off = band(off);
+    else if (off < min) off = min - band(min - off);
+    strip.style.transition = "none";
+    strip.style.transform = `translateX(${off}px)`;
+  });
+  const end = (e: PointerEvent) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    if (!d.moved) return;
+    const a = d.hist[0], b = d.hist[d.hist.length - 1];
+    const v = b.t > a.t ? ((b.x - a.x) / (b.t - a.t)) * 1000 : 0; // px/s
+    // Project where the flick would come to rest, then snap to the nearest image from there.
+    const rate = 0.99, projected = e.clientX - d.x0 + ((v / 1000) * rate) / (1 - rate);
+    go(i - Math.round(projected / d.w));
+  };
+  strip.addEventListener("pointerup", end);
+  strip.addEventListener("pointercancel", end);
 }
 
 ui.sites.addEventListener("click", (e) => {
-  const t = e.target as HTMLElement;
-  const btn = t.closest<HTMLButtonElement>("button.sort");
-  if (btn) {
-    const k = btn.dataset.key as SortKey;
-    state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : 1 };
-    drawTable();
-    return;
-  }
-  const tr = t.closest<HTMLTableRowElement>("tr[data-site]");
-  if (tr) selectSite(Number(tr.dataset.site), { pan: true });
+  const row = (e.target as HTMLElement).closest<HTMLButtonElement>(".site-row");
+  if (!row) return;
+  const j = Number(row.closest<HTMLElement>("li")!.dataset.site);
+  selectSite(j, { pan: state.selected !== j, scrollRow: true });
 });
 ui.sites.addEventListener("keydown", (e) => {
-  const tr = (e.target as HTMLElement).closest<HTMLTableRowElement>("tr[data-site]");
-  if (!tr) return;
-  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectSite(Number(tr.dataset.site), { pan: true }); }
-  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-    e.preventDefault();
-    const next = e.key === "ArrowDown" ? tr.nextElementSibling : tr.previousElementSibling;
-    if (next instanceof HTMLElement) next.focus();
-  }
+  const row = (e.target as HTMLElement).closest<HTMLElement>(".site-row");
+  if (!row || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+  e.preventDefault();
+  const rows = [...ui.sites.querySelectorAll<HTMLElement>(".site-row")];
+  rows[rows.indexOf(row) + (e.key === "ArrowDown" ? 1 : -1)]?.focus();
 });
 ui.sites.addEventListener("mouseover", (e) => {
-  const tr = (e.target as HTMLElement).closest<HTMLTableRowElement>("tr[data-site]");
-  hoverSite(tr ? Number(tr.dataset.site) : null);
+  const li = (e.target as HTMLElement).closest<HTMLElement>("li[data-site]");
+  hoverSite(li ? Number(li.dataset.site) : null);
 });
 ui.sites.addEventListener("mouseleave", () => hoverSite(null));
 ui.sites.addEventListener("focusin", (e) => {
-  const tr = (e.target as HTMLElement).closest<HTMLTableRowElement>("tr[data-site]");
-  hoverSite(tr ? Number(tr.dataset.site) : null);
+  const li = (e.target as HTMLElement).closest<HTMLElement>("li[data-site]");
+  hoverSite(li ? Number(li.dataset.site) : null);
 });
+ui.sortSel.addEventListener("change", () => { state.sort = ui.sortSel.value as SortKey; drawList(); });
+ui.search.addEventListener("input", () => {
+  state.query = ui.search.value;
+  if (state.query && !document.body.classList.contains("panel-open")) setPanel(true, false);
+  drawList();
+});
+ui.search.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const first = ui.sites.querySelector<HTMLElement>("li[data-site]");
+  if (first && Number(first.dataset.site) !== state.selected) selectSite(Number(first.dataset.site), { pan: true, scrollRow: true });
+});
+
+/** The warm card at the top of the panel: what this plan buys, in survivors per year. */
+const baseCache = new Map<string, number>();
+function drawSummary() {
+  const s = settings();
+  const { inst, cov } = scenario(s.source, s.emsResponseS);
+  const key = `${sourceKey(s.source)}:${s.emsResponseS}`;
+  if (!baseCache.has(key)) baseCache.set(key, evaluate(cov, inst.siteExisting));
+  const base = baseCache.get(key)!;
+  const nExisting = inst.siteExisting.reduce((a, b) => a + b, 0);
+  const installed = nExisting ? plural(nExisting, "installed AED") : "no installed AEDs";
+  const sol = state.solution;
+  if (!sol || sol.status === "updating") {
+    ui.summaryTitle.textContent = "Finding the best sites…";
+    ui.summaryBody.textContent = "Solving for the budget you set.";
+    return;
+  }
+  const nNew = sol.x.reduce((a, b, j) => a + (b && !inst.siteExisting[j] ? 1 : 0), 0);
+  if (!nNew) {
+    ui.summaryTitle.textContent = `${fmtLives(base)} lives saved a year`;
+    ui.summaryBody.textContent = `Expected survivors with the ${installed} alone. Add some with the New AEDs filter.`;
+    return;
+  }
+  const gain = sol.lives - base;
+  const every = gain > 0 ? Math.round(1 / gain) : 0;
+  ui.summaryTitle.textContent = `+${fmtLives(gain)} lives saved a year`;
+  ui.summaryBody.textContent = `${plural(nNew, "new AED")} on top of ${installed}` +
+    (every > 1 ? `: about one more survivor every ${every} years.` : ".");
+}
 
 function drawPanels() {
   const { source, emsResponseS } = settings();
   const { params } = scenario(source, emsResponseS);
 
-  drawTable();
+  drawList();
+  drawSummary();
 
   ui.params.innerHTML = "<thead><tr><th>Parameter</th><th>Value</th><th>Source</th></tr></thead><tbody>" +
     (Object.keys(CITATIONS) as (keyof typeof CITATIONS)[]).filter((k) => k !== "bandEdgesS")
@@ -876,7 +1114,6 @@ function drawPanels() {
 }
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
-const signed = (v: number) => (v >= 0 ? "+" : "") + v.toFixed(3);
 
 // ---------- solving ----------
 const newWorker = () => new Worker(new URL("./ilpWorker.ts", import.meta.url), { type: "module" });
@@ -979,45 +1216,108 @@ function drawCharts() {
 
 // ---------- floating panel and insights sheet ----------
 const panelToggle = document.getElementById("panelToggle") as HTMLButtonElement;
-function setPanel(open: boolean) {
+function setPanel(open: boolean, refit = true) {
   document.body.classList.toggle("panel-open", open);
   panelToggle.setAttribute("aria-expanded", String(open));
-  panelToggle.setAttribute("aria-label", open ? "Collapse side panel" : "Expand side panel");
-  // Refit once the slide has finished so the data sits in the newly visible area.
-  setTimeout(() => lockToData(true), 260);
+  panelToggle.setAttribute("aria-label", open ? "Collapse list" : "Expand list");
+  // Refit once the panel has settled so the data sits in the newly visible area.
+  if (refit) setTimeout(() => lockToData(true), 360);
 }
-panelToggle.addEventListener("click", () => setPanel(!document.body.classList.contains("panel-open")));
+panelToggle.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setPanel(!document.body.classList.contains("panel-open"));
+});
 // Phones: the panel is a bottom sheet; tapping its header folds it down or up.
 document.querySelector(".panel-head")!.addEventListener("click", () => {
   if (window.innerWidth <= 700) setPanel(!document.body.classList.contains("panel-open"));
 });
-if (window.innerWidth <= 700) document.body.classList.remove("panel-open");
+if (window.innerWidth <= 700) setPanel(false, false);
 
 const sheet = document.getElementById("sheet")!;
-const insightsBtn = document.getElementById("insightsBtn") as HTMLButtonElement;
-function setSheet(open: boolean) {
+let sheetOpener: HTMLElement | null = null;
+function setSheet(open: boolean, tab?: string) {
   sheet.hidden = !open;
-  insightsBtn.hidden = open;
-  insightsBtn.setAttribute("aria-expanded", String(open));
-  if (open) { drawCharts(); sheet.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(); }
-  else insightsBtn.focus();
+  if (open) {
+    if (tab) showTab(tab);
+    drawCharts();
+    sheet.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  } else sheetOpener?.focus();
 }
-insightsBtn.addEventListener("click", () => setSheet(true));
+function showTab(name: string) {
+  sheet.querySelectorAll<HTMLButtonElement>("[role=tab]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+  sheet.querySelectorAll<HTMLElement>("[role=tabpanel]").forEach((p) => { p.hidden = p.dataset.panel !== name; });
+  if (name === "charts") drawCharts();
+}
+ui.summary.addEventListener("click", () => { sheetOpener = ui.summary; setSheet(true, "charts"); });
 document.getElementById("sheetClose")!.addEventListener("click", () => setSheet(false));
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) setSheet(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden && pop.hidden) setSheet(false); });
 sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
   const tab = (e.target as HTMLElement).closest<HTMLButtonElement>("[role=tab]");
-  if (!tab) return;
-  sheet.querySelectorAll<HTMLButtonElement>("[role=tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
-  sheet.querySelectorAll<HTMLElement>("[role=tabpanel]").forEach((p) => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
-  if (tab.dataset.tab === "charts") drawCharts();
+  if (tab) showTab(tab.dataset.tab!);
 });
 
-// ---------- wiring ----------
+// ---------- filter pills and their popovers ----------
+// The controls are single elements that move into whichever popover is open, so "All" and the
+// single-control pills always show the same state.
+const pop = document.getElementById("pop")!;
+const fieldStore = document.getElementById("fieldStore")!;
+const POPS: Record<string, string[]> = {
+  all: ["budgetField", "emsField", "periodField"],
+  budget: ["budgetField"], ems: ["emsField"], time: ["periodField"], show: ["showField"], data: ["dataField"],
+};
+let popFor: HTMLButtonElement | null = null;
+function closePop(focusPill = false) {
+  if (!popFor) return;
+  fieldStore.append(...pop.children);
+  pop.hidden = true;
+  popFor.setAttribute("aria-expanded", "false");
+  if (focusPill) popFor.focus();
+  popFor = null;
+}
+function openPop(pill: HTMLButtonElement) {
+  const same = popFor === pill;
+  closePop();
+  if (same) return;
+  const name = pill.dataset.pop!;
+  pop.append(...POPS[name].map((id) => document.getElementById(id)!));
+  pop.classList.toggle("wide", name === "all");
+  pop.setAttribute("aria-label", pill.textContent!.trim());
+  pop.hidden = false;
+  pill.setAttribute("aria-expanded", "true");
+  popFor = pill;
+  // Anchor under the pill; keep inside the window.
+  const r = pill.getBoundingClientRect();
+  pop.style.top = `${r.bottom + 8}px`;
+  pop.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - pop.offsetWidth - 12))}px`;
+  pop.querySelector<HTMLElement>("input[type=range], .opt[aria-checked=true], input:checked, button, input")?.focus({ preventScroll: true });
+}
+document.getElementById("filters")!.addEventListener("click", (e) => {
+  const pill = (e.target as HTMLElement).closest<HTMLButtonElement>(".fpill");
+  if (pill) openPop(pill);
+});
+// Scrolling the pill row would leave the popover behind: close it.
+document.getElementById("filters")!.addEventListener("scroll", () => closePop());
+document.addEventListener("pointerdown", (e) => {
+  const t = e.target as HTMLElement;
+  if (popFor && !pop.contains(t) && !popFor.contains(t)) closePop();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && popFor) closePop(true); });
+window.addEventListener("resize", () => closePop());
+
+// Time of day: one row per period, with its hours.
 function buildPeriodButtons() {
   const { inst } = scenario(settings().source, settings().emsResponseS);
+  if (state.period >= inst.periods.length) state.period = 0;
   ui.periods.innerHTML = inst.periods.map((p, q) =>
-    `<button type="button" data-q="${q}" class="icon-chip ${q === state.period ? "on" : ""}" aria-pressed="${q === state.period}" aria-label="${PERIOD_NAMES[p] ?? cap(p)}" title="${PERIOD_NAMES[p] ?? cap(p)} · ${PERIOD_HOURS_TEXT[p] ?? ""}">${periodIcon(p)}</button>`).join("");
+    `<button type="button" role="radio" data-q="${q}" class="opt" aria-checked="${q === state.period}">` +
+    `<span class="opt-ico">${periodIcon(p)}</span><span class="opt-text">${PERIOD_NAMES[p] ?? cap(p)}<small>${PERIOD_HOURS_TEXT[p] ?? ""}</small></span></button>`).join("");
+  syncPeriodPill();
+}
+function syncPeriodPill() {
+  const { inst } = scenario(settings().source, settings().emsResponseS);
+  const p = inst.periods[state.period];
+  document.getElementById("periodOut")!.textContent = PERIOD_NAMES[p] ?? cap(p);
+  document.getElementById("periodIcon")!.innerHTML = periodIcon(p, 20);
 }
 
 /** Fill the range track up to the thumb (WebKit has no ::range-progress). */
@@ -1027,28 +1327,54 @@ function paintRange(el: HTMLInputElement) {
 }
 
 ui.periods.addEventListener("click", (e) => {
-  const btn = (e.target as HTMLElement).closest("button");
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-q]");
   if (!btn) return;
   state.period = Number(btn.dataset.q);
-  ui.periods.querySelectorAll("button").forEach((b) => {
-    b.classList.toggle("on", b === btn);
-    b.setAttribute("aria-pressed", String(b === btn));
-  });
+  ui.periods.querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", String(b === btn)));
+  syncPeriodPill();
   render();
+});
+// Arrow keys move between options in a radio group, as native radios do.
+for (const group of [ui.periods, document.getElementById("showOpts")!]) {
+  group.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const opts = [...group.querySelectorAll<HTMLButtonElement>(".opt")];
+    const k = opts.indexOf(document.activeElement as HTMLButtonElement);
+    const nextOpt = opts[(k + (e.key === "ArrowDown" ? 1 : opts.length - 1)) % opts.length];
+    nextOpt.focus();
+    nextOpt.click();
+  });
+}
+
+const SHOW_LABELS: Record<Show, string> = { all: "All AEDs", new: "Recommended", existing: "Installed" };
+document.getElementById("showOpts")!.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-show]");
+  if (!btn) return;
+  state.show = btn.dataset.show as Show;
+  btn.parentElement!.querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", String(b === btn)));
+  document.getElementById("showOut")!.textContent = SHOW_LABELS[state.show];
+  drawList();
 });
 
 let debounce = 0;
 const resolveSoon = (ms = 150) => { clearTimeout(debounce); debounce = window.setTimeout(solve, ms); };
-ui.budget.addEventListener("input", () => { ui.budgetOut.textContent = ui.budget.value; paintRange(ui.budget); resolveSoon(); });
-ui.ems.addEventListener("input", () => { ui.emsOut.textContent = `${Number(ui.ems.value).toFixed(1)} min`; paintRange(ui.ems); resolveSoon(); });
-paintRange(ui.budget);
-paintRange(ui.ems);
+function syncRangeLabels() {
+  ui.budgetOut.textContent = ui.budgetVal.textContent = ui.budget.value;
+  ui.emsOut.textContent = ui.emsVal.textContent = `${Number(ui.ems.value).toFixed(1)} min`;
+  paintRange(ui.budget);
+  paintRange(ui.ems);
+}
+ui.budget.addEventListener("input", () => { syncRangeLabels(); resolveSoon(); });
+ui.ems.addEventListener("input", () => { syncRangeLabels(); resolveSoon(); });
+syncRangeLabels();
 function onSourceChange() {
   map.attributionControl[settings().source.kind === "york" ? "addAttribution" : "removeAttribution"](YORK_CREDIT);
   state.solution = null;
   state.selected = null;
   hideInspector();
   updateCustomUi();
+  buildPeriodButtons();
   render();
   solve();
 }
@@ -1066,7 +1392,7 @@ ui.kcurve.addEventListener("pick", (e) => {
 });
 
 (async () => {
-  [lead, york] = await Promise.all([loadLead(), loadYork()]);
+  [lead, york, photos] = await Promise.all([loadLead(), loadYork(), loadPhotos()]);
   if (lead) {
     setLeadInstance(leadInstance(lead));
   }
