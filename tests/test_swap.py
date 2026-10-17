@@ -31,3 +31,9 @@ def test_swap_improves_bad_start():
 def test_swap_zero_budget():
     _, cov = build(seed=0, grid_n=12, n_buildings=8, n_sites=40, n_existing=2)
     assert np.array_equal(solve_swap(cov, 0).x, cov.site_existing)
+
+
+def test_swap_respects_costs():
+    _, cov = build(seed=0, grid_n=12, n_sites=40, n_existing=2, outdoor_cost=1.5)
+    sol = solve_swap(cov, 3)
+    assert cov.site_cost[sol.x & ~cov.site_existing].sum() <= 3 + 1e-9
