@@ -33,6 +33,10 @@ class Coverage:
         """Lives saved with an AED at every site: an upper bound for any budget."""
         return float(self.weights.sum())
 
+    def summary(self) -> dict:
+        return {"rows": self.n_rows, "sites": self.A.shape[1], "nonzeros": int(self.A.nnz),
+                "max_lives": round(self.max_lives(), 4)}
+
 
 def build_coverage(inst: Instance, tau: np.ndarray, params: Params) -> Coverage:
     edges, b = band_benefits(params)
