@@ -62,3 +62,9 @@ def test_build_pipeline():
     inst, cov = build(seed=0, grid_n=12, n_sites=40, n_existing=2)
     assert cov.A.shape[1] == inst.n_sites == 40
     assert np.array_equal(cov.site_existing, inst.site_existing)
+
+
+def test_max_lives_is_all_sites(tiny_instance):
+    cov = cov_for(tiny_instance)
+    assert cov.max_lives() == pytest.approx(evaluate(cov, np.ones(8, bool)))
+    assert cov.n_rows == cov.A.shape[0]
