@@ -9,6 +9,7 @@ import { CITATIONS } from "./model/params";
 import type { Solution } from "./model/solvers";
 import { LeadData, leadInstance, loadLead, loadPhotos, loadYork, Photo, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
+import { Zone, ZoneLayer } from "./zones";
 import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
 import {
@@ -145,19 +146,10 @@ map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 L.control.zoom({ position: "bottomright" }).addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
 // control's on/off state persists.
-const heatLayer = L.layerGroup().addTo(map);       // reach zones around open AEDs
-// One pane per band, outermost lowest; pane opacity gives a clean union of overlapping rings.
+// Reach zones on one canvas, clipped to the campus; uncovered campus ground shows red.
 const ZONE_COLOURS = ["#1a9850", "#91cf60", "#fee08b", "#fc8d59"]; // ≤2, 2–4, 4–6 min, 6 min – ambulance
-const ZONE_OPACITY = [0.42, 0.34, 0.3, 0.24];
-const zoneRenderers = ZONE_COLOURS.map((_, b) => {
-  const name = `zone${b}`;
-  map.createPane(name);
-  const pane = map.getPane(name)!;
-  pane.style.zIndex = String(380 - b);
-  pane.style.opacity = String(ZONE_OPACITY[b]);
-  pane.style.pointerEvents = "none";
-  return L.canvas({ pane: name, padding: 0.5 });
-});
+const NO_AED = "#d73027";                                          // no AED before the ambulance
+const heatLayer = new ZoneLayer(ZONE_COLOURS, NO_AED, 0.45).addTo(map);
 const demandLayer = L.layerGroup();                // raw demand points
 const candidateLayer = L.layerGroup();             // candidate sites without an AED
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
@@ -165,7 +157,7 @@ const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recomme
 const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
 const campusLayer = L.layerGroup().addTo(map);     // campus boundary: the area AEDs are planned for
 // "Map details": layer toggles shown in a popover from the pill bar, like the other settings.
-const LAYERS: [string, L.LayerGroup][] = [
+const LAYERS: [string, L.Layer][] = [
   ["AED reach zones", heatLayer],
   ["Recommended AEDs", newLayer],
   ["Existing AEDs", existingLayer],
@@ -269,7 +261,8 @@ legend.onAdd = () => {
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
     `<div class="legend-body"><h3>AED reached and back within</h3><ul>` +
     BANDS.map((b, k) => item(b.colour, k === BANDS.length - 1 ? "6 min – before ambulance" : b.label)).join("") +
-    `</ul><p class="note">Outside the rings the ambulance gets there first.</p><hr />` +
+    item("#d73027", "No AED before the ambulance") +
+    `</ul><p class="note">Colours stop at the campus boundary.</p><hr />` +
     `<h3>AEDs</h3><ul>` +
     item(SITE.existing, "Existing", true) + item(SITE.new, "New", true) + item(SITE.locked, "Locked this period", true) +
     `</ul></div>`;
@@ -302,7 +295,7 @@ function drawMap() {
   const editable = source.kind === "custom";
   const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
-  for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
+  for (const g of [demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
   campusLayer.clearLayers();
   const campusRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
   if (campusRing?.length) {
@@ -325,23 +318,23 @@ function drawMap() {
   markers.clear();
 
   // Reach zones: for every AED that is open now, rings in real metres showing how far a bystander can
-  // fetch it and get back within 2 / 4 / 6 minutes and before the ambulance. Geographic circles grow
-  // with the map as you zoom in. Each band has its own semi-transparent pane, so overlapping rings of
-  // the same band merge into one shape instead of stacking darker.
+  // fetch it and get back within 2 / 4 / 6 minutes and before the ambulance. They are painted on a
+  // canvas clipped to the campus, where any ground no AED reaches in time stays red.
   const { params } = scenario(source, emsResponseS);
   const perMetre = (2 * params.detourFactor) / params.walkSpeedMps; // seconds per metre of distance
   const edges = [...BANDS.map((b) => Math.min(b.edge, emsResponseS)), emsResponseS];
+  const zones: Zone[] = [];
   for (let j = 0; j < J; j++) {
     if (!x[j] || !inst.siteOpen[j * P + q]) continue;
-    const pos = ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1]);
     const slack = params.dispatchDelayS + inst.siteFloorDelay[j];
-    for (let b = ZONE_COLOURS.length - 1; b >= 0; b--) {
-      const radius = Math.min(params.maxTauS, edges[b]) > slack ? (Math.min(params.maxTauS, edges[b]) - slack) / perMetre : 0;
-      if (radius <= 0) continue;
-      L.circle(pos, { radius, renderer: zoneRenderers[b], stroke: false, fillColor: ZONE_COLOURS[b], fillOpacity: 1, interactive: false })
-        .addTo(heatLayer);
-    }
+    const radii = ZONE_COLOURS.map((_, b) => {
+      const t = Math.min(params.maxTauS, edges[b]);
+      return t > slack ? (t - slack) / perMetre : 0;
+    });
+    zones.push({ at: L.latLng(ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1])), radii });
   }
+  const zoneRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
+  heatLayer.setData(zones, zoneRing);
   for (let i = 0; i < inst.nCells; i++) {
     const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: OUTLINE, weight: editable ? 1 : 0, fillColor: "#9e9e9e", fillOpacity: 0.85 })
       .bindTooltip("Demand point").addTo(demandLayer);
