@@ -1,7 +1,8 @@
 """Population-only baseline: put AEDs where the most arrests happen, ignoring time bands.
 
 Score of site j = sum over cells i and periods p of cell_rate[i, p] for every cell whose
-one-way walking time detour_factor * ||cell_i - site_j|| / walk_speed_mps <= radius_s.
+one-way walking time detour_factor * ||cell_i - site_j|| / walk_speed_mps <= radius_s
+(or the Instance's walking-path distance / walk_speed_mps when walk_dist_m is set).
 There is no dispatch delay, no round trip and no floor delay in the score (180 s is about
 194 m at the default parameters). Opening hours and survival are ignored. Starting from the
 existing AEDs, non-existing sites are walked in descending score (stable: ties go to the
@@ -22,8 +23,11 @@ def solve_population(inst: Instance, cov: Coverage, budget: float,
                      radius_s: float = 180.0, params: Params | None = None) -> Solution:
     start = time.perf_counter()
     p = params or Params()
-    dist = np.linalg.norm(inst.cell_xy[:, None, :] - inst.site_xy[None, :, :], axis=2)
-    near = p.detour_factor * dist / p.walk_speed_mps <= radius_s       # (I, J)
+    if inst.walk_dist_m is not None:                                    # real walking paths
+        walk = inst.walk_dist_m
+    else:
+        walk = p.detour_factor * np.linalg.norm(inst.cell_xy[:, None, :] - inst.site_xy[None, :, :], axis=2)
+    near = walk / p.walk_speed_mps <= radius_s                          # (I, J)
     score = inst.cell_rate.sum(axis=1) @ near                          # (J,)
 
     x = cov.site_existing.copy()
