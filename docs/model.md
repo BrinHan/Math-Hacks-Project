@@ -16,7 +16,9 @@ rate_ip = people_ip * incidence / 100,000 * (public_fraction / away_time_share) 
 `people_ip` already counts only people present on campus, so they are in public. 17.8% of
 arrests happen in public while people spend 31.3% of their time away from home (Klepeis
 2001), so a person in public has about 0.57 times the average arrest hazard (younger and
-healthier people are the ones out). Arrests at home are excluded by construction.
+healthier people are the ones out). Arrests at home are excluded, with one stated
+exception: residents of residential halls are counted (assumption 11) and given the same
+public hazard ratio, although their at-home hazard would be about 2x higher.
 
 ## Time to defibrillation
 

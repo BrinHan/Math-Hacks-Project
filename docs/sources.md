@@ -21,7 +21,8 @@ paywalls were not read; every figure below comes from the abstract or page named
 | `survival_k_per_min` range | (0.03, 0.10) | (0.03, 0.12) | The base 0.10 sat on the upper edge of its range. Waalewijn et al. (source 5) report odds ratios of 0.85-0.89 per minute of delay to defibrillation, which correspond to rates of about 0.12-0.16 per minute, and Larsen et al. imply about 0.08. 0.12 is at the lower end of the OR-implied 0.12-0.16 and above Larsen's 0.08 (the OR-based rates are not directly comparable); it puts the base inside the range. Base value unchanged (0.10). |
 
 No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
-`public_fraction` (0.18) are unchanged and sit inside ranges the sources support.
+`public_fraction` (0.18) keep their values, but `public_fraction` now enters demand as
+the numerator of the hazard ratio public_fraction / away_time_share.
 
 ## References
 
@@ -163,7 +164,7 @@ No other base values or ranges were changed. `incidence_per_100k_yr` (55.0) and
     in public locations. *JAMA Cardiology* 2(11):1226-1235.
     doi:10.1001/jamacardio.2017.3471.
     URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5710360
-    Used under "For model refinement" and as a caution on `public_fraction`:
+    Supports the `shockable_fraction` base (26.5%) and is a caution on `public_fraction`:
     CARES, 16 North Carolina counties, 2010-2014, 8,269 arrests, 32.3% in public
     locations (higher than the national 17.8%, so regional values can fall outside
     our 0.12-0.25 range).
@@ -231,8 +232,8 @@ open input.
 - Fordyce et al. 2017 (source 15): all public-location arrests in 16 North
   Carolina counties, 2010-2014, VF/pVT in 26.5% (706 of 2,665) vs 21.0% at home.
   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5710360
-  Reading: about 26% of all public arrests are shockable, but 60-79% for the
-  witnessed and AED-applied cases the model cares about.
+  Reading: about 26% of all public arrests are shockable (the base, since demand
+  counts every public arrest); 60-79% applies only to witnessed or AED-applied cases.
 
 (b) Overall survival of EMS-treated OHCA:
 - Nichol et al. 2008 (source 2): median survival to discharge 8.4% (IQR 5.4-10.4%,
@@ -255,4 +256,6 @@ open input.
 - `survival_S0` high end 0.8 (highest cited figure is 74%).
 - `walk_speed_mps` high end 2.0 m/s (between brisk walking, 1.79, and maximum speed).
 - `survival_k_per_min` low end 0.03 (bystander-CPR figure not opened from a primary source).
+- `shockable_fraction` range 0.20-0.38 around the sourced base 0.265 (0.20 is near the home figure, 21.0%; 0.38 is the EMS-witnessed public figure).
+- `away_time_share` is fixed at 0.313 (all ages, US 1992-94); it is not varied in the sensitivity analysis.
 - Derived figures (arithmetic on the sources): about 14% public (Chan), 0.08/min and 8%/min (Larsen), 1.79 m/s (4 mph), circuity mean 1.27 (Boeing Table 1).

@@ -40,7 +40,9 @@ class OATRow:
 
 def _rescale_demand(inst: Instance, base: Params, p: Params, factor: float = 1.0) -> Instance:
     """cell_rate was generated with base epidemiology; rescale it to p's."""
-    epi = (p.incidence_per_100k_yr / base.incidence_per_100k_yr) * (p.public_fraction / base.public_fraction)
+    epi = ((p.incidence_per_100k_yr / base.incidence_per_100k_yr)
+           * (p.public_fraction / base.public_fraction)
+           * (base.away_time_share / p.away_time_share))
     return dataclasses.replace(inst, cell_rate=inst.cell_rate * epi * factor,
                                site_open=inst.site_open.copy())
 

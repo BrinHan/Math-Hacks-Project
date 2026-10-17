@@ -91,7 +91,7 @@ def test_coarse_grid_large_campus_has_finite_demand():
 
 
 def test_zero_sites_rejected():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="n_sites"):
         generate_instance(seed=0, n_sites=0)
 
 

@@ -58,3 +58,10 @@ def test_curve_matches_single_budget(monkeypatch):
     curve = monte_carlo_curve(seed=0, budgets=[0, 3], n=8, rng_seed=2)
     single = monte_carlo(seed=0, budget=3, n=8, rng_seed=2)
     assert np.allclose(curve[3], single.lives_fixed)
+
+
+def test_rescale_respects_away_time_share():
+    inst = generate_instance(seed=0, **SMALL)
+    base = Params()
+    p = dataclasses.replace(base, away_time_share=base.away_time_share * 2)
+    assert np.allclose(uncertainty._rescale_demand(inst, base, p).cell_rate, inst.cell_rate / 2)
