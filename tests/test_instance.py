@@ -14,3 +14,10 @@ def test_validate_rejects_bad_shape():
     bad = dataclasses.replace(inst, site_cost=inst.site_cost[:-1])
     with pytest.raises(ValueError, match="site_cost"):
         bad.validate()
+
+
+def test_validate_rejects_negative_cost():
+    inst = generate_instance(seed=0, **SMALL)
+    inst.site_cost[0] = -1.0
+    with pytest.raises(ValueError, match="negative"):
+        inst.validate()
