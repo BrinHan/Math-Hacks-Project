@@ -21,3 +21,11 @@
 | `placements.json` | new site ids chosen by the ILP for each K |
 
 Fake rows in the same formats live in `results/mock/`.
+
+## Running
+
+```bash
+pip install -r requirements.txt
+python -m pytest -q
+python experiments/run_all.py --seed 0 --n 200
+```
