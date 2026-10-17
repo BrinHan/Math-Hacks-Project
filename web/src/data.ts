@@ -13,7 +13,7 @@ export interface OATRow {
 }
 
 export interface LeadData {
-  source: { generator: string; seed: number; results_dir: string; python_origin_latlon: [number, number] };
+  source: { generator: string; campus?: string; seed: number; results_dir: string; python_origin_latlon: [number, number] };
   params: Record<string, unknown>;
   ranges: Record<string, [number, number]>;
   citations: Record<string, string>;
@@ -21,7 +21,9 @@ export interface LeadData {
     cellXY: number[]; cellRate: number[]; siteXY: number[]; siteCost: number[]; siteFloorDelay: number[];
     siteOpen: number[]; siteExisting: number[]; siteKind: string[]; periods: string[]; periodHours: number[];
     originLatLon: [number, number]; nCells: number; nSites: number; cellSizeM: number;
+    walkDistM?: number[]; siteName?: string[];
   };
+  footprints?: { id: string; name?: string; ring: [number, number][] }[];
   results: {
     kCurve: KCurveRow[];
     mcKCurve: MCRow[];
@@ -67,5 +69,7 @@ export function leadInstance(d: LeadData): Instance {
     siteExisting: Uint8Array.from(s.siteExisting), siteKind: [...s.siteKind], periods: [...s.periods],
     periodHours: [...s.periodHours], originLatLon: s.originLatLon,
     nCells: s.nCells, nSites: s.nSites, cellSizeM: s.cellSizeM,
+    ...(s.walkDistM ? { walkDistM: Float64Array.from(s.walkDistM) } : {}),
+    ...(s.siteName ? { siteName: [...s.siteName] } : {}),
   };
 }

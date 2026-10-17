@@ -11,7 +11,8 @@ export interface Instance {
   siteOpen: Uint8Array;       // (J, P) 0/1
   siteExisting: Uint8Array;   // (J,) 0/1
   siteForced?: Uint8Array;    // (J,) 0/1 must-include (custom datasets only)
-  siteName?: string[];        // (J,) display names (custom datasets only)
+  siteName?: string[];        // (J,) display names (custom datasets and the York team model)
+  walkDistM?: Float64Array;   // (I, J) walking-path metres; replaces straight line x detour when set
   siteKind: string[];
   periods: string[];
   periodHours: number[];

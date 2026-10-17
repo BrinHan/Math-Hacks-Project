@@ -2,10 +2,18 @@
 import { Instance } from "./instance";
 import { Params } from "./params";
 
-/** (I, J) seconds, flattened: dispatch delay + round trip at walking speed + floor delay. */
+/**
+ * (I, J) seconds, flattened: dispatch delay + round trip at walking speed + floor delay.
+ * Uses the instance's walking-path distances when present (York), else straight line x detour.
+ */
 export function travelTimeMatrix(inst: Instance, params: Params): Float64Array {
   const { nCells: I, nSites: J } = inst;
   const tau = new Float64Array(I * J);
+  if (inst.walkDistM) {
+    const w = 2 / params.walkSpeedMps;
+    for (let k = 0; k < I * J; k++) tau[k] = params.dispatchDelayS + w * inst.walkDistM[k] + inst.siteFloorDelay[k % J];
+    return tau;
+  }
   const f = (2 * params.detourFactor) / params.walkSpeedMps;
   for (let i = 0; i < I; i++) {
     const cx = inst.cellXY[2 * i], cy = inst.cellXY[2 * i + 1];

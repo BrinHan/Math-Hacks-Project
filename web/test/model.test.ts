@@ -131,3 +131,13 @@ describe("full-size campus", () => {
     expect(sol.lives).toBeGreaterThanOrEqual(g.lives - 1e-9);
   }, 120_000);
 });
+
+describe("walking distances", () => {
+  it("travelTimeMatrix uses walkDistM instead of straight line x detour", () => {
+    const inst = generateInstance(1, { extentM: 600, gridN: 3, nSites: 4, nExisting: 0 });
+    const walk = new Float64Array(inst.nCells * inst.nSites).fill(140);
+    const tau = travelTimeMatrix({ ...inst, walkDistM: walk }, DEFAULT_PARAMS);
+    const j = 2;
+    expect(tau[j]).toBeCloseTo(DEFAULT_PARAMS.dispatchDelayS + (2 * 140) / DEFAULT_PARAMS.walkSpeedMps + inst.siteFloorDelay[j], 9);
+  });
+});
