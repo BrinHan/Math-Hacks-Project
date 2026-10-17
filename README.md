@@ -74,7 +74,7 @@ York's 19 published AEDs save an expected 0.100 lives per year. Adding new AEDs 
 | 20 | 0.194 | 0.193 | 0.119 |
 | 30 | 0.206 | 0.205 | 0.125 |
 
-Greedy stays within about 1% of the ILP. Population-only placement stacks AEDs in the busiest buildings and gets roughly half the benefit at K = 10. The K = 10 plan holds up under Monte Carlo (200 runs): 0.156 lives per year, with a 90% interval of 0.060 to 0.335.
+Greedy stays within about 1% of the ILP. Population-only placement stacks AEDs in the busiest buildings: at K = 10 it adds 0.013 lives per year, against 0.075 for the ILP. The K = 10 plan holds up under Monte Carlo (200 runs): 0.156 lives per year, with a 90% interval of 0.060 to 0.335.
 
 We also asked how good York's current layout is. Keeping 19 AEDs but placing them anywhere, the model's best layout beats the published one by 74% in the base case, and by 38% to 99% across the plausible scenarios we tried (a footpaths-only run gives 129%, inflated because indoor routes aren't mapped). Most of the gain comes from moving AEDs to residences and busy college buildings. Winters, Founders and McLaughlin colleges, Atkinson, the Sherman Health Science Research Centre and Pond Road Residence all sit more than a 3-minute walk from a published AED. These gains come from modeled occupancy, so read them as a direction and not a measurement, and York's map may omit AEDs that exist.
 
@@ -89,6 +89,7 @@ pip install -r requirements.txt
 python -m pytest -q
 python experiments/run_all.py --seed 0 --n 200 --out results/york     # K-curve, Monte Carlo, sensitivity
 python experiments/york_validation.py --out results/york               # published vs best York placements
+python experiments/pitch_figures.py                                    # pitch charts -> results/york/figures/
 python web/scripts/export_data.py --seed 0                             # refresh the app's data
 ```
 
@@ -100,7 +101,7 @@ python web/scripts/export_data.py --seed 0                             # refresh
 | --- | --- |
 | `aed/` | The model: data loaders, travel time, survival, coverage, solvers, uncertainty |
 | `aed/data/york.py` | Keele campus loader built from `data/york/` |
-| `experiments/` | Scripts that write the results CSVs and the York validation |
+| `experiments/` | Scripts that write the results CSVs, the York validation and the pitch figures (`pitch_figures.py`) |
 | `results/york/` | Committed York results the app reads |
 | `web/` | The browser app (TypeScript, Vite, Leaflet, HiGHS in WASM) |
 | `data/york/` | OpenStreetMap extracts, York AED list, classrooms, residences, and their [sources](data/york/SOURCES.md) |
