@@ -1,7 +1,7 @@
-numpy
+numpy>=1.26
 scipy>=1.9
-matplotlib
-pytest
+matplotlib>=3.8
+pytest>=8
 streamlit
 folium
 streamlit-folium
