@@ -44,3 +44,11 @@ def test_travel_time_grows_with_distance():
     d = np.linalg.norm(inst.cell_xy[:, None] - inst.site_xy[None], axis=2)
     order = np.argsort(d[0])
     assert np.all(np.diff(tau[0, order]) >= -1e-9)
+
+
+def test_floor_delay_adds_directly():
+    inst = generate_instance(seed=0, grid_n=6, n_sites=10)
+    before = travel_time_matrix(inst, Params())
+    inst.site_floor_delay[3] += 30.0
+    after = travel_time_matrix(inst, Params())
+    assert np.allclose(after[:, 3] - before[:, 3], 30.0)
