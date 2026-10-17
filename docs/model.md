@@ -30,3 +30,16 @@ Distance is straight-line times a detour factor until real walking paths (OSMnx)
 Survival if shocked t minutes after collapse: `S(t) = S0 * exp(-k t)`. Without a nearby
 AED the patient waits for the ambulance, so the benefit of an AED arriving within band
 T_k is `b_k = max(0, S(T_k) - S(T_ems))`. Bands slower than the ambulance are worth 0.
+
+## Optimisation (gradual-cover maximal covering)
+
+With `x_j` = AED at site j and `z_ipk` = cell i in period p reached within band k:
+
+```latex
+\max \sum_{i,p,k} rate_{ip} (b_k - b_{k+1}) z_{ipk}
+\quad \text{s.t.} \quad z_{ipk} \le \sum_{j:\ \tau_{ij} \le T_k,\ open_{jp}} x_j,
+\quad \sum_j c_j x_j \le K, \quad x_j = 1 \text{ for existing AEDs}.
+```
+
+Reachable sets grow with k, so the covered terms add up to `rate_ip * b(fastest band)`.
+Solved with HiGHS through `scipy.optimize.milp`.
