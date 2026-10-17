@@ -222,3 +222,7 @@ K-curve, site-frequency map, tornado, and baseline comparison bar chart.
 | Sun 09:00-11:00 | Integration, figures, README |
 | Sun 11:00 | Code freeze |
 | Sun 13:00 | Submit |
+
+## 13. Further reading
+
+See `docs/model.md`, `docs/assumptions.md` and `docs/interfaces.md`.
