@@ -3,7 +3,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./style.css";
-import { evaluate, evaluateByPeriod } from "./model/coverage";
+import { evaluate } from "./model/coverage";
 import { metresToLatLon } from "./model/instance";
 import { CITATIONS } from "./model/params";
 import type { Solution } from "./model/solvers";
@@ -45,7 +45,6 @@ const ui = {
   clearBtn: $<HTMLButtonElement>("clearBtn"),
   arrestsField: $("arrestsField"),
   arrests: $<HTMLInputElement>("arrests"),
-  bars: $("bars"),
   sites: $<HTMLTableElement>("sites"),
   params: $<HTMLTableElement>("params"),
   busy: $("busy"),
@@ -784,16 +783,7 @@ ui.sites.addEventListener("focusin", (e) => {
 
 function drawPanels() {
   const { source, emsResponseS } = settings();
-  const { inst, cov, params } = scenario(source, emsResponseS);
-  const sol = state.solution;
-  const x = sol?.x ?? inst.siteExisting;
-  const P = inst.periods.length, q = state.period;
-  const byPeriod = evaluateByPeriod(cov, x);
-
-  const maxP = Math.max(...byPeriod, 1e-12);
-  ui.bars.innerHTML = byPeriod.map((v, p) =>
-    `<div class="bar ${p === q ? "active" : ""}"><span>${PERIOD_NAMES[inst.periods[p]] ?? cap(inst.periods[p])}</span>` +
-    `<div class="track"><div style="width:${(100 * v) / maxP}%"></div></div><b>${v.toFixed(3)}</b></div>`).join("");
+  const { params } = scenario(source, emsResponseS);
 
   drawTable();
 
