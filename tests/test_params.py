@@ -1,6 +1,6 @@
 import pytest
 
-from aed.params import Params
+from aed.params import RANGES, Params, param_table
 
 
 def test_unknown_survival_form_rejected():
@@ -11,3 +11,10 @@ def test_unknown_survival_form_rejected():
 def test_band_edges_must_increase():
     with pytest.raises(ValueError):
         Params(band_edges_s=(120.0, 60.0))
+
+
+def test_param_table_complete():
+    rows = {r["name"]: r for r in param_table()}
+    assert set(rows) == set(Params.__dataclass_fields__)
+    for name, (lo, hi) in RANGES.items():
+        assert (rows[name]["low"], rows[name]["high"]) == (lo, hi)
