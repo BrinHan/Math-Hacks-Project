@@ -52,6 +52,8 @@ OPEN = {
 }
 FLOOR_DELAY_ENTRANCE_S = 20.0   # ASSUMPTION: AED mounted at the entrance
 FLOOR_DELAY_EXISTING_S = 45.0   # ASSUMPTION: York AEDs are inside, location named only
+# ASSUMPTION: a bystander indoors must leave and re-enter the building to use an outdoor cabinet.
+FLOOR_DELAY_OUTDOOR_S = 30.0
 N_OUTDOOR = 20                  # outdoor cabinets at the busiest path junctions
 OUTDOOR_SPACING_M = 150.0
 OUTDOOR_COST = 1.5
@@ -160,7 +162,7 @@ def _geometry(cell_m: float):
     for p in chosen:
         sites.append(p)
         kinds.append(("outdoor", -1))
-        delays.append(0.0)
+        delays.append(FLOOR_DELAY_OUTDOOR_S)
         costs.append(OUTDOOR_COST)
         existing.append(False)
 

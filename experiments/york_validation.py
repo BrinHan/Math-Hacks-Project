@@ -13,14 +13,14 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aed.coverage import build_coverage  # noqa: E402
-from aed.data.york import PERIODS, load_york  # noqa: E402
+from aed.data.york import FLOOR_DELAY_ENTRANCE_S, PERIODS, load_york  # noqa: E402
 from aed.data.york_tables import load_buildings  # noqa: E402
 from aed.params import Params  # noqa: E402
 from aed.solvers.common import evaluate  # noqa: E402
 from aed.solvers.ilp import solve_ilp  # noqa: E402
 from aed.travel import travel_time_matrix  # noqa: E402
 
-GAP_S = 180.0   # "no AED within 3 minutes" of a building
+GAP_S = 240.0   # collapse-to-shock over 4 minutes (60 s to set off, walk both ways, find the AED)
 
 
 def main(out="results") -> dict:
@@ -37,8 +37,22 @@ def main(out="results") -> dict:
     free_cov = build_coverage(free, tau, p)
     best = solve_ilp(free_cov, n_york)
     york_lives = evaluate(free_cov, york)
+    # Fairness check: York's AEDs as quick to reach as an entrance-mounted one.
+    door = dataclasses.replace(free, site_floor_delay=np.where(york, FLOOR_DELAY_ENTRANCE_S,
+                                                               free.site_floor_delay))
+    york_at_door = evaluate(build_coverage(door, travel_time_matrix(door, p), p), york)
 
-    # Coverage gaps: busy buildings whose nearest published AED is over 3 minutes away
+    # Which buildings get an AED: nearest kept building to each chosen site.
+    kept = [b for b in load_buildings() if b["kind"] != "ignore"]
+    centres = np.array([[b["cx"], b["cy"]] for b in kept])
+
+    def building_of(j):
+        return kept[int(np.argmin(np.linalg.norm(centres - inst.site_xy[j], axis=1)))]["name"]
+
+    best_buildings = sorted({building_of(j) for j in np.flatnonzero(best.x) if inst.site_kind[j] != "outdoor"})
+    york_buildings = sorted({building_of(j) for j in np.flatnonzero(york)})
+
+    # Coverage gaps: busy buildings whose nearest published AED is over 4 minutes away
     # (weekday afternoon, AED must be open).
     q = PERIODS.index("weekday_afternoon")
     reach = np.where(york & inst.site_open[:, q], tau, np.inf).min(1)
@@ -58,8 +72,11 @@ def main(out="results") -> dict:
         "lives_published_19": round(york_lives, 5),
         "lives_best_19": round(best.lives, 5),
         "resiting_gain_pct": round(100 * (best.lives - york_lives) / york_lives, 1) if york_lives else None,
-        "overlap_sites": int((best.x & york).sum()),
-        "best_19_kinds": sorted({inst.site_kind[j] for j in np.flatnonzero(best.x)}),
+        "lives_published_19_at_door": round(york_at_door, 5),
+        "best_19_outdoor_cabinets": int(sum(inst.site_kind[j] == "outdoor" for j in np.flatnonzero(best.x))),
+        "best_19_buildings": best_buildings,
+        "published_buildings": york_buildings,
+        "shared_buildings": sorted(set(best_buildings) & set(york_buildings)),
         "gap_threshold_s": GAP_S,
         "coverage_gaps": gaps[:15],
     }
