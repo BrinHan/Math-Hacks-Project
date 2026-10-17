@@ -40,6 +40,14 @@
     named only), 30 s for an outdoor cabinet (leave and re-enter the building).
 20. Opening: academic buildings locked at night and weekends; library, services and
     athletics locked at night; residences and outdoor cabinets always reachable.
-21. Walking distance is the shortest path on the OpenStreetMap network; indoor routes and
-    tunnels are not mapped, so `detour_factor` has no effect on York results.
-22. York's AED map may be incomplete; results compare against York's *published* AEDs.
+21. Walking distance is the shortest path on the OpenStreetMap network, capped at 1.3 x the
+    straight line up to 100 m and rising smoothly beyond (people cut through buildings and
+    plazas that the footpath map misses). Indoor tunnels are not mapped. `detour_factor`
+    has no effect on York results and is left out of the York sensitivity analysis.
+22. York's AED map may be incomplete (residence AEDs and security-patrol AEDs are not on it);
+    results compare against York's *published* AEDs.
+23. Residents at home are given the same public hazard ratio as other occupants. Arrests in
+    residence rooms are less often witnessed, so this likely overstates what a lobby AED can do.
+24. Base-case beds: handbook residences plus York-run apartments (Assiniboine, Passy); the
+    privately run Quad and unidentified housing appear only in a sensitivity scenario. The
+    Central Utilities power plant is excluded and Physical Resources uses office density.
