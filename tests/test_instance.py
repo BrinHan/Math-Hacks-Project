@@ -21,3 +21,10 @@ def test_validate_rejects_negative_cost():
     inst.site_cost[0] = -1.0
     with pytest.raises(ValueError, match="negative"):
         inst.validate()
+
+
+def test_validate_rejects_bad_period_hours():
+    inst = generate_instance(seed=0, **SMALL)
+    inst.period_hours = np.array([10.0, 6.0, 7.0])
+    with pytest.raises(ValueError, match="24"):
+        inst.validate()
