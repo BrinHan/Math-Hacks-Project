@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>York AED Optimizer</title>
+  </head>
+  <body>
+    <aside id="controls">
+      <h1>AED placement · York U</h1>
+      <p class="sub">Expected cardiac-arrest survivors per year, compared with waiting for the ambulance. Synthetic demand on York University's Keele campus.</p>
+
+      <label>Campus seed <input id="seed" type="number" min="0" max="999" value="0" /></label>
+
+      <label>Budget K (new AEDs) <output id="budgetOut">10</output>
+        <input id="budget" type="range" min="0" max="30" value="10" />
+      </label>
+
+      <fieldset id="solver">
+        <legend>Solver</legend>
+        <label><input type="radio" name="solver" value="ilp" checked /> ILP (optimal)</label>
+        <label><input type="radio" name="solver" value="greedy" /> Greedy</label>
+      </fieldset>
+
+      <label>Ambulance response <output id="emsOut">9.0 min</output>
+        <input id="ems" type="range" min="7" max="12" step="0.5" value="9" />
+      </label>
+
+      <fieldset>
+        <legend>Time of day</legend>
+        <div id="periods" class="seg"></div>
+      </fieldset>
+
+      <label class="check"><input id="candidates" type="checkbox" /> Show candidate sites</label>
+    </aside>
+
+    <main>
+      <section id="metrics" class="metrics"></section>
+      <div class="body">
+        <div class="mapwrap">
+          <div id="map"></div>
+          <div id="busy" hidden>Solving…</div>
+        </div>
+        <div class="side">
+          <h2>Lives by period</h2>
+          <div id="bars"></div>
+          <h2>New AED sites</h2>
+          <div class="tablewrap"><table id="sites"></table></div>
+        </div>
+      </div>
+      <details>
+        <summary>Assumptions and parameters</summary>
+        <div class="tablewrap"><table id="params"></table></div>
+      </details>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
