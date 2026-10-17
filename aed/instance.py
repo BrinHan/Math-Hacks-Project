@@ -33,6 +33,11 @@ class Instance:
     def n_periods(self) -> int:
         return len(self.periods)
 
+    def summary(self) -> str:
+        open_counts = " ".join(f"{p}={int(n)}" for p, n in zip(self.periods, self.site_open.sum(axis=0)))
+        return (f"{self.n_cells} cells, {self.n_sites} sites ({int(self.site_existing.sum())} existing), "
+                f"open by period {open_counts}, {self.cell_rate.sum():.2f} public arrests/yr")
+
     def validate(self) -> None:
         I, J, P = self.n_cells, self.n_sites, self.n_periods
         shapes = {
