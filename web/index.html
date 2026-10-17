@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>York AED Optimizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <aside id="controls">
+      <header class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/><path fill="none" stroke="#0b0f17" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 11h3.5l1.5-3 2.5 6 1.5-3H19"/></svg>
+        </div>
+        <div>
+          <h1>AED Placement</h1>
+          <p class="sub">York University · Keele campus</p>
+        </div>
+      </header>
+
+      <p class="blurb">Expected cardiac-arrest survivors per year compared with waiting for the ambulance. The team's campus model has 30 buildings with occupancy by time of day; it is illustrative, not measured York data.</p>
+
+      <section class="group">
+        <h2 class="group-title">Scenario</h2>
+
+        <fieldset class="field">
+          <legend>Dataset</legend>
+          <div class="seg">
+            <label><input type="radio" name="dataset" value="lead" checked /><span>Team results</span></label>
+            <label><input type="radio" name="dataset" value="synthetic" /><span>Random grid</span></label>
+          </div>
+          <p id="datasetNote" class="field-note"></p>
+        </fieldset>
+
+        <div class="field" id="seedField" hidden>
+          <label for="seed">Campus seed</label>
+          <input id="seed" type="number" min="0" max="999" value="0" inputmode="numeric" />
+        </div>
+
+        <div class="field">
+          <div class="field-head"><label for="budget">Budget (new AEDs)</label><output id="budgetOut" class="pill">10</output></div>
+          <input id="budget" type="range" min="0" max="30" value="10" />
+          <div class="scale"><span>0</span><span>30</span></div>
+        </div>
+
+        <div class="field">
+          <div class="field-head"><label for="ems">Ambulance response</label><output id="emsOut" class="pill">9.0 min</output></div>
+          <input id="ems" type="range" min="7" max="12" step="0.5" value="9" />
+          <div class="scale"><span>7 min</span><span>12 min</span></div>
+        </div>
+
+        <fieldset class="field">
+          <legend>Solver</legend>
+          <div id="solver" class="seg">
+            <label><input type="radio" name="solver" value="ilp" checked /><span>ILP · optimal</span></label>
+            <label><input type="radio" name="solver" value="greedy" /><span>Greedy</span></label>
+          </div>
+        </fieldset>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">View</h2>
+        <fieldset class="field">
+          <legend>Time of day</legend>
+          <div id="periods" class="seg"></div>
+        </fieldset>
+        <label class="toggle"><input id="candidates" type="checkbox" /><span class="switch" aria-hidden="true"></span>Show candidate sites</label>
+      </section>
+    </aside>
+
+    <main>
+      <section id="metrics" class="metrics" aria-live="polite"></section>
+      <div class="body">
+        <div class="card mapcard">
+          <div id="map" role="region" aria-label="Campus map"></div>
+          <div id="busy" class="busy" hidden><span class="spinner"></span><span id="busyText">Solving…</span></div>
+        </div>
+        <div class="side">
+          <section class="card">
+            <div class="card-head"><h2>Lives by period</h2><span class="hint">per year</span></div>
+            <div id="bars" class="bars"></div>
+          </section>
+          <section class="card table-card">
+            <div class="card-head"><h2>New AED sites</h2><span id="siteCount" class="hint"></span></div>
+            <div class="tablewrap"><table id="sites"></table></div>
+          </section>
+        </div>
+      </div>
+      <section id="charts" class="charts" hidden>
+        <div class="card chart" id="kcurve">
+          <div class="card-head">
+            <h2>Lives saved vs budget</h2>
+            <div class="chart-legend" aria-hidden="true">
+              <span><i class="ln" style="background:#0d9488"></i>ILP</span>
+              <span><i class="ln dash" style="--c:#9333ea"></i>Greedy</span>
+              <span><i class="ln dashdot" style="--c:#c2410c"></i>Population-only</span>
+              <span><i class="sw" style="background:rgb(13 148 136 / .3)"></i>90% Monte Carlo</span>
+              <span><i class="ln dot"></i>Existing only</span>
+            </div>
+          </div>
+          <div class="chart-plot"></div>
+        </div>
+        <div class="card chart" id="tornado">
+          <div class="card-head">
+            <h2>Sensitivity at K = 10</h2>
+            <div class="chart-legend" aria-hidden="true">
+              <span><i class="sw" style="background:#2563eb"></i>Low</span>
+              <span><i class="sw" style="background:#ea580c"></i>High</span>
+            </div>
+          </div>
+          <div class="chart-plot"></div>
+        </div>
+      </section>
+      <details class="card">
+        <summary>Assumptions and parameters</summary>
+        <div class="tablewrap"><table id="params" class="params"></table></div>
+      </details>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
