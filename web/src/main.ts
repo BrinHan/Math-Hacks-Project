@@ -24,9 +24,10 @@ const BANDS = [
   { edge: Infinity, colour: "#fc8d59", label: "6 min – EMS" },
 ];
 const UNREACHED = "#d73027";
-const ACCENT = "#171717"; // selection ring on the map
-// Recommended AEDs carry the accent red; installed ones are ink; both read apart from the time bands.
-const SITE = { existing: "#171717", new: "#da0037", locked: "#b5b5b5" };
+const ACCENT = "#ededed"; // selection ring on the map
+// Recommended AEDs carry the accent red; installed ones are light; both read apart from the time bands.
+const SITE = { existing: "#ededed", new: "#da0037", locked: "#6a6a6a" };
+const OUTLINE = "#171717"; // marker outline against the dark map
 const MUST = "#f9ab00"; // dashed outline on must-include sites
 // Muted, low-chroma tags so building type reads as metadata, not as another status colour.
 const KIND_COLOURS: Record<string, string> = {
@@ -129,11 +130,17 @@ const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.
 
 // ---------- map ----------
 const map = L.map("map", { preferCanvas: true, zoomControl: false, maxBoundsViscosity: 1.0, zoomSnap: 0.5 });
-// Esri World Topographic Map (no API key): a soft outdoor-map base under the reach rings and pins.
-L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", {
-  maxZoom: 19, maxNativeZoom: 19,
+// Esri Dark Gray Canvas (no API key): a quiet dark base, with its street labels in a pane above the
+// reach rings so names stay readable.
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
+L.tileLayer(`${ESRI}/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
+  maxZoom: 19, maxNativeZoom: 16,
   attribution: '&copy; Esri &middot; &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
+map.createPane("labels");
+map.getPane("labels")!.style.zIndex = "390";
+map.getPane("labels")!.style.pointerEvents = "none";
+L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 19, maxNativeZoom: 16, pane: "labels" }).addTo(map);
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 L.control.zoom({ position: "bottomright" }).addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
@@ -267,7 +274,7 @@ const legend = new L.Control({ position: "bottomleft" });
 legend.onAdd = () => {
   const div = L.DomUtil.create("div", "legend");
   const item = (colour: string, label: string, dot = false) =>
-    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #fff,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
+    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #171717,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
   div.innerHTML =
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
     `<div class="legend-body"><h3>AED reached and back within</h3><ul>` +
@@ -309,14 +316,14 @@ function drawMap() {
   if (source.kind === "lead" && lead?.footprints?.length) {
     // The York team model's building footprints (OpenStreetMap), under the heatmap.
     for (const fp of lead.footprints) {
-      L.polygon(fp.ring, { color: "#5f6368", weight: 1, opacity: 0.8, fillColor: "#5f6368", fillOpacity: 0.06, interactive: false })
+      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false })
         .bindTooltip(esc(fp.name ?? ""), { sticky: true }).addTo(buildingLayer);
     }
   } else if (source.kind === "york" && york) {
     // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
-    L.polygon(york.campus, { color: "#5f6368", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
+    L.polygon(york.campus, { color: "#8a8a8a", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
     for (const fp of york.footprints) {
-      L.polygon(fp.ring, { color: "#5f6368", weight: 1, opacity: 0.8, fillColor: "#5f6368", fillOpacity: 0.06, interactive: false }).addTo(buildingLayer);
+      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false }).addTo(buildingLayer);
     }
   }
   markers.clear();
@@ -340,7 +347,7 @@ function drawMap() {
     }
   }
   for (let i = 0; i < inst.nCells; i++) {
-    const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: "#ffffff", weight: editable ? 1 : 0, fillColor: "#5f6368", fillOpacity: 0.85 })
+    const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: OUTLINE, weight: editable ? 1 : 0, fillColor: "#9e9e9e", fillOpacity: 0.85 })
       .bindTooltip("Demand point").addTo(demandLayer);
     if (editable) dot.on("click", (e) => { L.DomEvent.stop(e); openDemandEditor(i); });
   }
@@ -354,14 +361,14 @@ function drawMap() {
       const m = L.circleMarker(pos, {
         radius: MARKER_R, fillOpacity: 1, fillColor: open ? SITE[role] : SITE.locked,
         // Must-include sites get a dashed white outline so they read as a planner's pin.
-        color: forced ? MUST : "#ffffff", weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
+        color: forced ? MUST : OUTLINE, weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
       }).bindTooltip(`<b>${name(j)}</b> · ${role === "new" ? (forced ? "Must-include" : "Recommended") : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
         .addTo(role === "existing" ? existingLayer : newLayer);
       markers.set(j, m);
       wireSite(m, j, true);
     } else {
       const m = L.circleMarker(pos, {
-        radius: editable ? 4.5 : 3, color: "#ffffff", weight: 1, fillColor: "#80868b", fillOpacity: open ? 0.9 : 0.35,
+        radius: editable ? 4.5 : 3, color: OUTLINE, weight: 1, fillColor: "#9e9e9e", fillOpacity: open ? 0.9 : 0.35,
       }).bindTooltip(`${name(j)} · candidate<br>${cap(inst.siteKind[j])}`).addTo(candidateLayer);
       wireSite(m, j, false);
     }
@@ -627,7 +634,7 @@ function showInspector(content: HTMLElement, at: L.LatLngExpression) {
   inspector.hidden = false;
   editRing?.remove();
   editRing = L.circleMarker(at, {
-    renderer: ringRenderer, pane: "selection", radius: 12, color: "#202124", weight: 2, dashArray: "4 3",
+    renderer: ringRenderer, pane: "selection", radius: 12, color: "#ededed", weight: 2, dashArray: "4 3",
     fill: false, interactive: false,
   }).addTo(map);
   // Bring the edited item into view if the panel or an edge hides it: shift the map so the item sits
