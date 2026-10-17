@@ -24,6 +24,7 @@ export interface LeadData {
     walkDistM?: number[]; siteName?: string[];
   };
   footprints?: { id: string; name?: string; ring: [number, number][] }[];
+  campus?: [number, number][]; // campus boundary (lat, lon), for the map outline
   results: {
     kCurve: KCurveRow[];
     mcKCurve: MCRow[];

@@ -9,6 +9,7 @@ import { CITATIONS } from "./model/params";
 import type { Solution } from "./model/solvers";
 import { LeadData, leadInstance, loadLead, loadPhotos, loadYork, Photo, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
+import { RAMP_CSS, Zone, ZoneLayer } from "./zones";
 import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
 import {
@@ -145,62 +146,41 @@ map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 L.control.zoom({ position: "bottomright" }).addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
 // control's on/off state persists.
-const heatLayer = L.layerGroup().addTo(map);       // reach zones around open AEDs
-// One pane per band, outermost lowest; pane opacity gives a clean union of overlapping rings.
-const ZONE_COLOURS = ["#1a9850", "#91cf60", "#fee08b", "#fc8d59"]; // ≤2, 2–4, 4–6 min, 6 min – ambulance
-const ZONE_OPACITY = [0.42, 0.34, 0.3, 0.24];
-const zoneRenderers = ZONE_COLOURS.map((_, b) => {
-  const name = `zone${b}`;
-  map.createPane(name);
-  const pane = map.getPane(name)!;
-  pane.style.zIndex = String(380 - b);
-  pane.style.opacity = String(ZONE_OPACITY[b]);
-  pane.style.pointerEvents = "none";
-  return L.canvas({ pane: name, padding: 0.5 });
-});
+// Reach zones on one canvas, clipped to the campus; uncovered campus ground shows red.
+const heatLayer = new ZoneLayer(0.55).addTo(map); // weather-style time-to-AED field, clipped to campus
 const demandLayer = L.layerGroup();                // raw demand points
 const candidateLayer = L.layerGroup();             // candidate sites without an AED
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
 const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
-// "Map layers" card (top right) with a popover of toggles.
-const LAYERS: [string, L.LayerGroup][] = [
+const campusLayer = L.layerGroup().addTo(map);     // campus boundary: the area AEDs are planned for
+// "Map details": layer toggles shown in a popover from the pill bar, like the other settings.
+const LAYERS: [string, L.Layer][] = [
   ["AED reach zones", heatLayer],
   ["Recommended AEDs", newLayer],
   ["Existing AEDs", existingLayer],
   ["Candidate AED sites", candidateLayer],
   ["Demand points", demandLayer],
   ["Building outlines", buildingLayer],
+  ["Campus boundary", campusLayer],
 ];
-const layersCtl = new L.Control({ position: "topright" });
-layersCtl.onAdd = () => {
-  const wrap = L.DomUtil.create("div", "layers-ctl");
-  const btn = Object.assign(document.createElement("button"), { type: "button", className: "layers-btn" });
-  btn.setAttribute("aria-expanded", "false");
-  btn.setAttribute("aria-haspopup", "true");
-  btn.setAttribute("aria-label", "Map layers");
-  btn.innerHTML = '<span class="ltext">Map layers</span><span class="lthumb" aria-hidden="true"></span>';
-  const pop = document.createElement("div");
-  pop.className = "layers-pop";
-  pop.hidden = true;
-  pop.innerHTML = "<h3>Map details</h3>";
+{
+  const field = document.createElement("div");
+  field.className = "field";
+  field.id = "layersField";
+  field.innerHTML = '<span class="flabel">Map details</span><p class="note">Choose what to draw on the map.</p>';
+  const list = document.createElement("div");
+  list.className = "layer-toggles";
   for (const [label, layer] of LAYERS) {
     const row = document.createElement("label");
     const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: map.hasLayer(layer) });
     box.addEventListener("change", () => (box.checked ? layer.addTo(map) : layer.remove()));
     row.append(box, document.createTextNode(label));
-    pop.append(row);
+    list.append(row);
   }
-  const setOpen = (open: boolean) => { pop.hidden = !open; btn.setAttribute("aria-expanded", String(open)); };
-  btn.addEventListener("click", () => setOpen(pop.hidden));
-  document.addEventListener("click", (e) => { if (!wrap.contains(e.target as Node)) setOpen(false); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
-  wrap.append(btn, pop);
-  L.DomEvent.disableClickPropagation(wrap);
-  L.DomEvent.disableScrollPropagation(wrap);
-  return wrap;
-};
-layersCtl.addTo(map);
+  field.append(list);
+  document.getElementById("fieldStore")!.append(field);
+}
 
 let fittedFor = "";
 let viewBounds: L.LatLngBounds | null = null;
@@ -277,9 +257,11 @@ legend.onAdd = () => {
     `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #171717,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
   div.innerHTML =
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
-    `<div class="legend-body"><h3>AED reached and back within</h3><ul>` +
-    BANDS.map((b, k) => item(b.colour, k === BANDS.length - 1 ? "6 min – before ambulance" : b.label)).join("") +
-    `</ul><p class="note">Outside the rings the ambulance gets there first.</p><hr />` +
+    `<div class="legend-body"><h3>Time to fetch an AED and return</h3>` +
+    `<div class="ramp" style="background:${RAMP_CSS}"></div>` +
+    `<div class="ramp-scale"><span>0 min</span><span>ambulance · <b id="legendEms">9 min</b></span></div>` +
+    `<ul>` + item("#d73027", "Red: no AED before the ambulance") + `</ul>` +
+    `<p class="note">Colours stop at the campus boundary.</p><hr />` +
     `<h3>AEDs</h3><ul>` +
     item(SITE.existing, "Existing", true) + item(SITE.new, "New", true) + item(SITE.locked, "Locked this period", true) +
     `</ul></div>`;
@@ -289,7 +271,7 @@ legend.onAdd = () => {
     toggle.setAttribute("aria-expanded", String(!c));
   };
   toggle.addEventListener("click", () => setCollapsed(!div.classList.contains("collapsed")));
-  setCollapsed(window.matchMedia("(max-width: 700px), (max-height: 860px)").matches); // starts folded unless there is room
+  setCollapsed(true); // starts folded; one tap opens it
   L.DomEvent.disableClickPropagation(div);
   L.DomEvent.disableScrollPropagation(div);
   return div;
@@ -312,7 +294,14 @@ function drawMap() {
   const editable = source.kind === "custom";
   const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
-  for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
+  for (const g of [demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
+  campusLayer.clearLayers();
+  const campusRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
+  if (campusRing?.length) {
+    // Outline of the area the plan covers: a soft halo under a dashed line, so it reads on any base map.
+    L.polygon(campusRing, { color: "#000000", weight: 6, opacity: 0.35, fill: false, interactive: false }).addTo(campusLayer);
+    L.polygon(campusRing, { color: "#f5f5f5", weight: 2.5, opacity: 0.95, dashArray: "10 7", lineCap: "round", fill: false, interactive: false }).addTo(campusLayer);
+  }
   if (source.kind === "lead" && lead?.footprints?.length) {
     // The York team model's building footprints (OpenStreetMap), under the heatmap.
     for (const fp of lead.footprints) {
@@ -321,7 +310,6 @@ function drawMap() {
     }
   } else if (source.kind === "york" && york) {
     // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
-    L.polygon(york.campus, { color: "#8a8a8a", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
     for (const fp of york.footprints) {
       L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false }).addTo(buildingLayer);
     }
@@ -329,23 +317,20 @@ function drawMap() {
   markers.clear();
 
   // Reach zones: for every AED that is open now, rings in real metres showing how far a bystander can
-  // fetch it and get back within 2 / 4 / 6 minutes and before the ambulance. Geographic circles grow
-  // with the map as you zoom in. Each band has its own semi-transparent pane, so overlapping rings of
-  // the same band merge into one shape instead of stacking darker.
+  // fetch it and get back within 2 / 4 / 6 minutes and before the ambulance. They are painted on a
+  // canvas clipped to the campus, where any ground no AED reaches in time stays red.
   const { params } = scenario(source, emsResponseS);
   const perMetre = (2 * params.detourFactor) / params.walkSpeedMps; // seconds per metre of distance
-  const edges = [...BANDS.map((b) => Math.min(b.edge, emsResponseS)), emsResponseS];
+  const zones: Zone[] = [];
   for (let j = 0; j < J; j++) {
     if (!x[j] || !inst.siteOpen[j * P + q]) continue;
-    const pos = ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1]);
     const slack = params.dispatchDelayS + inst.siteFloorDelay[j];
-    for (let b = ZONE_COLOURS.length - 1; b >= 0; b--) {
-      const radius = Math.min(params.maxTauS, edges[b]) > slack ? (Math.min(params.maxTauS, edges[b]) - slack) / perMetre : 0;
-      if (radius <= 0) continue;
-      L.circle(pos, { radius, renderer: zoneRenderers[b], stroke: false, fillColor: ZONE_COLOURS[b], fillOpacity: 1, interactive: false })
-        .addTo(heatLayer);
-    }
+    zones.push({ at: L.latLng(ll(inst.siteXY[2 * j], inst.siteXY[2 * j + 1])), slackS: slack });
   }
+  const zoneRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
+  heatLayer.setData(zones, zoneRing, { perMetreS: perMetre, emsS: emsResponseS, maxS: params.maxTauS });
+  const legendEnd = document.getElementById("legendEms");
+  if (legendEnd) legendEnd.textContent = `${(emsResponseS / 60).toFixed(emsResponseS % 60 ? 1 : 0)} min`;
   for (let i = 0; i < inst.nCells; i++) {
     const dot = L.circleMarker(ll(inst.cellXY[2 * i], inst.cellXY[2 * i + 1]), { radius: editable ? 3.5 : 2.5, color: OUTLINE, weight: editable ? 1 : 0, fillColor: "#9e9e9e", fillOpacity: 0.85 })
       .bindTooltip("Demand point").addTo(demandLayer);
@@ -1262,8 +1247,10 @@ sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
 const pop = document.getElementById("pop")!;
 const fieldStore = document.getElementById("fieldStore")!;
 const POPS: Record<string, string[]> = {
-  all: ["budgetField", "emsField", "periodField"],
+  // "All" holds every setting, so the bar can drop the less-used Show and Dataset pills.
+  all: ["budgetField", "emsField", "periodField", "showField", "dataField"],
   budget: ["budgetField"], ems: ["emsField"], time: ["periodField"], show: ["showField"], data: ["dataField"],
+  layers: ["layersField"],
 };
 let popFor: HTMLButtonElement | null = null;
 function closePop(focusPill = false) {

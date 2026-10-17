@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 from aed.data.synthetic import generate_instance  # noqa: E402
 from aed.data.york import load_york, site_buildings  # noqa: E402
-from aed.data.york_tables import YORK_ORIGIN as YORK_MODEL_ORIGIN, load_buildings, load_footprints  # noqa: E402
+from aed.data.york_tables import YORK_ORIGIN as YORK_MODEL_ORIGIN, load_boundary, load_buildings, load_footprints  # noqa: E402
 from aed.instance import metres_to_latlon  # noqa: E402
 from aed.params import CITATIONS, RANGES, Params  # noqa: E402
 
@@ -87,6 +87,8 @@ def main(seed: int, results: Path, out: Path, campus: str = "york") -> None:
         # Walking-path distances (metres, 0.1 m) replace straight line x detour in the app too.
         data["instance"]["walkDistM"] = [round(float(v), 1) for v in inst.walk_dist_m.ravel()]
         data["instance"]["siteName"] = site_buildings()
+        # Campus boundary (OSM "York University, Keele Campus") for the map outline.
+        data["campus"] = [[round(a, 6), round(c, 6)] for a, c in metres_to_latlon(load_boundary(), YORK_MODEL_ORIGIN)]
         feet = load_footprints()
         for b in load_buildings():
             if b["kind"] == "ignore":
