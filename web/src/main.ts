@@ -33,8 +33,17 @@ const KIND_COLOURS: Record<string, string> = {
   academic: "#9a8fbf", library: "#7f9fbf", residential: "#86a88f",
   athletic: "#b8a37a", dining: "#b8917a", outdoor: "#a3a3a3",
 };
-const PERIOD_NAMES: Record<string, string> = { day: "Day", evening: "Evening", night: "Night" };
-const PERIOD_HOURS_TEXT: Record<string, string> = { day: "8am–6pm", evening: "6pm–midnight", night: "midnight–8am" };
+const PERIOD_NAMES: Record<string, string> = {
+  day: "Day", evening: "Evening", night: "Night",
+  // York team model: five weekly periods
+  weekday_morning: "Weekday morning", weekday_afternoon: "Weekday afternoon",
+  weekday_evening: "Weekday evening", weekend: "Weekend",
+};
+const PERIOD_HOURS_TEXT: Record<string, string> = {
+  day: "8am–6pm", evening: "6pm–midnight", night: "midnight–8am",
+  weekday_morning: "Mon–Fri 8am–1pm", weekday_afternoon: "Mon–Fri 1pm–6pm",
+  weekday_evening: "Mon–Fri 6pm–midnight", weekend: "Sat–Sun 8am–midnight",
+};
 const svg = (d: string, size = 18) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 // Sun, sun on the horizon (dusk), crescent moon.
@@ -43,6 +52,11 @@ const PERIOD_ICON_PATHS: Record<string, string> = {
   evening: '<path d="M7 18a5 5 0 0 1 10 0"/><path d="M2 18h20M12 6v3M4.6 10.6l1.6 1.6M19.4 10.6l-1.6 1.6M6 22h12"/>',
   night: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
 };
+PERIOD_ICON_PATHS.weekday_morning = PERIOD_ICON_PATHS.day;
+PERIOD_ICON_PATHS.weekday_afternoon = PERIOD_ICON_PATHS.day;
+PERIOD_ICON_PATHS.weekday_evening = PERIOD_ICON_PATHS.evening;
+// Calendar page for the weekend.
+PERIOD_ICON_PATHS.weekend = '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>';
 const periodIcon = (p: string, size?: number) => svg(PERIOD_ICON_PATHS[p] ?? PERIOD_ICON_PATHS.day, size);
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -276,7 +290,13 @@ function drawMap() {
   const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
   for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
-  if (source.kind === "york" && york) {
+  if (source.kind === "lead" && lead?.footprints?.length) {
+    // The York team model's building footprints (OpenStreetMap), under the heatmap.
+    for (const fp of lead.footprints) {
+      L.polygon(fp.ring, { color: "#5f6368", weight: 1, opacity: 0.8, fillColor: "#5f6368", fillOpacity: 0.06, interactive: false })
+        .bindTooltip(esc(fp.name ?? ""), { sticky: true }).addTo(buildingLayer);
+    }
+  } else if (source.kind === "york" && york) {
     // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
     L.polygon(york.campus, { color: "#5f6368", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
     for (const fp of york.footprints) {
@@ -437,10 +457,13 @@ function updateCustomUi() {
     ui.budget.max = "30";
     if (Number(ui.budget.value) > 30) { ui.budget.value = "30"; ui.budgetOut.textContent = "30"; }
     if (york && settings().source.kind === "york") {
-      ui.datasetNote.textContent = `${york.stats.buildings} real buildings · ${york.stats.mappedAeds} AED mapped in OpenStreetMap · occupancy modelled`;
+      ui.datasetNote.textContent = `Quick sketch: ${york.stats.buildings} OpenStreetMap buildings · ${york.stats.mappedAeds} AED mapped there · not the team model`;
     } else if (lead && datasetChoice() === "lead") {
       const ks = lead.results.kCurve.map((r) => r.K);
-      ui.datasetNote.textContent = `Team campus · seed ${lead.source.seed} · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`;
+      const existing = lead.instance.siteExisting.reduce((a, b) => a + b, 0);
+      ui.datasetNote.textContent = lead.source.campus === "york"
+        ? `York Keele team model · ${existing} published AEDs · walking paths · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`
+        : `Team campus · seed ${lead.source.seed} · K = ${Math.min(...ks)}–${Math.max(...ks)} solved`;
     } else if (!lead) {
       ui.datasetNote.textContent = "Team export missing (run web/scripts/export_data.py): showing a placeholder campus";
     }
