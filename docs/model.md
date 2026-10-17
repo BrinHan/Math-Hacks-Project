@@ -62,3 +62,10 @@ Monte Carlo: each scenario draws every parameter uniformly in its range, scales 
 0.7-1.3, and flips the opening hours of 10% of sites. We report the base-case plan's lives
 saved as a mean with a 90% interval, and how often each site is chosen when re-optimised.
 One-at-a-time sensitivity moves each parameter to its low and high value (tornado chart).
+
+## Validation
+
+- The ILP matches brute-force enumeration on a small campus.
+- Greedy stays above the 63% bound, and swap lands between greedy and the ILP.
+- The optimality gap of greedy vs the ILP is reported for every K.
+- Numbers are always expected lives per year with an interval, never exact.
