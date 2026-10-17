@@ -20,6 +20,7 @@ class Instance:
     periods: list[str]
     period_hours: np.ndarray      # (P,) hours per day in each period, sums to 24
     origin_latlon: tuple[float, float]
+    walk_dist_m: np.ndarray | None = None  # (I, J) network walking metres; None -> Euclidean x detour
 
     @property
     def n_cells(self) -> int:
@@ -61,6 +62,11 @@ class Instance:
         for name in ("cell_rate", "site_cost", "site_floor_delay"):
             if np.any(getattr(self, name) < 0):
                 raise ValueError(f"{name} has negative values")
+        if self.walk_dist_m is not None:
+            if self.walk_dist_m.shape != (I, J):
+                raise ValueError(f"walk_dist_m has shape {self.walk_dist_m.shape}, expected {(I, J)}")
+            if not np.all(np.isfinite(self.walk_dist_m)) or np.any(self.walk_dist_m < 0):
+                raise ValueError("walk_dist_m must be finite and non-negative")
         if abs(float(np.sum(self.period_hours)) - 24.0) > 1e-6:
             raise ValueError("period_hours must sum to 24")
         for name in ("site_open", "site_existing"):
