@@ -163,6 +163,7 @@ const candidateLayer = L.layerGroup();             // candidate sites without an
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
 const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
+const campusLayer = L.layerGroup().addTo(map);     // campus boundary: the area AEDs are planned for
 // "Map details": layer toggles shown in a popover from the pill bar, like the other settings.
 const LAYERS: [string, L.LayerGroup][] = [
   ["AED reach zones", heatLayer],
@@ -171,6 +172,7 @@ const LAYERS: [string, L.LayerGroup][] = [
   ["Candidate AED sites", candidateLayer],
   ["Demand points", demandLayer],
   ["Building outlines", buildingLayer],
+  ["Campus boundary", campusLayer],
 ];
 {
   const field = document.createElement("div");
@@ -301,6 +303,13 @@ function drawMap() {
   const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
   for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
+  campusLayer.clearLayers();
+  const campusRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
+  if (campusRing?.length) {
+    // Outline of the area the plan covers: a soft halo under a dashed line, so it reads on any base map.
+    L.polygon(campusRing, { color: "#000000", weight: 6, opacity: 0.35, fill: false, interactive: false }).addTo(campusLayer);
+    L.polygon(campusRing, { color: "#f5f5f5", weight: 2.5, opacity: 0.95, dashArray: "10 7", lineCap: "round", fill: false, interactive: false }).addTo(campusLayer);
+  }
   if (source.kind === "lead" && lead?.footprints?.length) {
     // The York team model's building footprints (OpenStreetMap), under the heatmap.
     for (const fp of lead.footprints) {
@@ -309,7 +318,6 @@ function drawMap() {
     }
   } else if (source.kind === "york" && york) {
     // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
-    L.polygon(york.campus, { color: "#8a8a8a", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
     for (const fp of york.footprints) {
       L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false }).addTo(buildingLayer);
     }
