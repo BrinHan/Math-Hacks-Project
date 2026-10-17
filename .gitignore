@@ -6,3 +6,4 @@ __pycache__/
 results/*
 !results/mock/
 .claude/worktrees/
+!results/york/

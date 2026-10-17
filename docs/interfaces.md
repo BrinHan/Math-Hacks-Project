@@ -2,7 +2,8 @@
 
 | Function | Returns |
 | --- | --- |
-| `build(seed=0, params=None, **gen_kwargs)` | `(Instance, Coverage)` |
+| `build(seed=0, params=None, campus="synthetic", **gen_kwargs)` | `(Instance, Coverage)`; `campus="york"` loads Keele |
+| `load_york(params=None, cell_m=50.0)` | York Keele `Instance` (with `walk_dist_m`) |
 | `solve_ilp(cov, budget)` / `solve_greedy` / `solve_swap` | `Solution` |
 | `solve_population(inst, cov, budget, radius_s=180.0, params=None)` | `Solution` (population-only baseline) |
 | `evaluate(cov, x)` | expected lives saved per year |
@@ -30,3 +31,6 @@ pip install -r requirements.txt
 python -m pytest -q
 python experiments/run_all.py --seed 0 --n 200
 ```
+
+`Instance.walk_dist_m` (optional, I x J metres): when set, travel time uses these walking-path
+distances instead of straight-line x detour. Experiments take `--campus york|synthetic` (default york).

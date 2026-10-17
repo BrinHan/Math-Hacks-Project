@@ -7,3 +7,10 @@ def test_registry_methods_solve():
     assert set(SOLVERS) == {"ilp", "greedy", "swap"}
     for name, solve in SOLVERS.items():
         assert solve(cov, 2).method == name
+
+
+def test_unknown_campus_rejected():
+    import pytest
+    from aed.pipeline import make_instance
+    with pytest.raises(ValueError, match="campus"):
+        make_instance(campus="mars")

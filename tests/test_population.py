@@ -42,3 +42,12 @@ def test_population_uses_one_way_walk_with_given_params():
     score = np.where(1.2 * d / 2.0 <= 400.0, inst.cell_rate.sum(1)[:, None], 0.0).sum(0)
     sol = solve_population(inst, cov, 1, radius_s=400.0, params=p)
     assert sol.x[np.argmax(score)] and sol.x.sum() == 1
+
+
+def test_population_uses_walk_distances_when_present():
+    import dataclasses
+    inst, cov = build(seed=0, grid_n=12, n_buildings=8, n_sites=40, n_existing=0, outdoor_cost=1.0)
+    walk = np.full((inst.n_cells, inst.n_sites), 1e6)
+    walk[:, 7] = 10.0                       # only site 7 is walkable from anywhere
+    inst = dataclasses.replace(inst, walk_dist_m=walk)
+    assert np.flatnonzero(solve_population(inst, cov, 1).x).tolist() == [7]

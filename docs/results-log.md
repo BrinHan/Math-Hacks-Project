@@ -34,3 +34,45 @@ less than half the optimum.
 - One-at-a-time sensitivity at K=10 (base 0.120): ambulance response time
   (0.066-0.198), public fraction (0.080-0.167), shockable fraction (0.091-0.172),
   survival decay rate (0.058-0.126), incidence (0.087-0.153).
+
+## 2026-10-17, York University Keele campus (headline)
+
+Real campus: 86 buildings (OpenStreetMap), 16,008 classroom seats, residence beds from the
+York Housing handbook plus York-run apartments, York's 19 published AEDs, walking paths.
+About 3.7 public cardiac arrests per year on campus. Files: `results/york/`.
+
+**Absolute numbers first.** York's 19 published AEDs save an expected **0.100 lives per year**
+compared with waiting for the ambulance.
+
+| New AEDs on top of York's 19 | ILP | greedy | population-only |
+| --- | --- | --- | --- |
+| 0 | 0.100 | 0.100 | 0.100 |
+| 5 | 0.157 | 0.157 | 0.109 |
+| 10 | 0.175 | 0.173 | 0.113 |
+| 20 | 0.194 | 0.193 | 0.119 |
+| 30 | 0.206 | 0.205 | 0.125 |
+
+Five well-placed AEDs add 0.057 lives/yr (about 0.011 per AED, one extra survivor every
+~17 years for the five); greedy stays within 1.0% of the ILP. Monte Carlo (n = 200),
+K = 10 plan: 0.156 lives/yr, 90% interval 0.060-0.335.
+
+**Re-siting York's 19 AEDs** (`results/york/york_validation.json`):
+
+| Scenario | York's 19 | same 19 at their door | best 19 | gain |
+| --- | --- | --- | --- | --- |
+| base case | 0.100 | 0.108 | 0.173 | +74% |
+| handbook beds only | 0.099 | 0.107 | 0.158 | +59% |
+| incl. private housing | 0.101 | 0.111 | 0.200 | +99% |
+| no residents | 0.098 | 0.105 | 0.135 | +38% |
+| shortcut radius 200 m | 0.103 | 0.112 | 0.174 | +69% |
+| footpaths only | 0.063 | 0.080 | 0.145 | +129% |
+
+Range +38% to +99% across plausible scenarios (the footpaths-only row is inflated by the
+footpath map missing indoor routes). The door step mainly tests the 45 s vs 20 s access
+assumption; most of the gain comes from moving AEDs to residences and busy college
+buildings. Busy buildings over a 3-minute walk from a published AED: Winters, Founders and
+McLaughlin colleges, Atkinson, Sherman Health Science Research Centre, Pond Road Residence.
+Caveat: York's published map may omit residence or patrol AEDs, which would shrink the gain.
+
+Sensitivity (K = 10): public fraction and ambulance response time move lives most
+(0.117-0.244), then shockable fraction (0.132-0.251) and survival decay (0.081-0.186).
