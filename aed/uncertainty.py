@@ -20,6 +20,7 @@ GEN_KWARGS: dict = {}       # passed to generate_instance; tests shrink the camp
 CAMPUS = "synthetic"        # "york" runs everything on the Keele campus
 DEMAND_SCALE = (0.7, 1.3)   # ASSUMPTION: +-30% uncertainty in campus foot traffic
 LOCKOUT_FLIP_FRAC = 0.10    # ASSUMPTION: 10% of opening schedules are wrong
+PRIOR = "uniform"           # "triangular" peaks each parameter at its base value instead
 
 
 @dataclass
@@ -52,8 +53,16 @@ def _coverage(inst: Instance, p: Params) -> Coverage:
     return build_coverage(inst, travel_time_matrix(inst, p), p)
 
 
+def _draw(rng: np.random.Generator, lo: float, mode: float, hi: float) -> float:
+    if PRIOR == "uniform":
+        return float(rng.uniform(lo, hi))
+    if PRIOR == "triangular":
+        return float(rng.triangular(lo, mode, hi))
+    raise ValueError(f"PRIOR must be 'uniform' or 'triangular', got {PRIOR!r}")
+
+
 def sample_scenario(inst: Instance, base: Params, rng: np.random.Generator) -> tuple[Instance, Params]:
-    p = dataclasses.replace(base, **{k: float(rng.uniform(lo, hi)) for k, (lo, hi) in RANGES.items()})
+    p = dataclasses.replace(base, **{k: _draw(rng, lo, getattr(base, k), hi) for k, (lo, hi) in RANGES.items()})
     s = _rescale_demand(inst, base, p, float(rng.uniform(*DEMAND_SCALE)))
     candidates = np.flatnonzero(~inst.site_existing)
     n_flip = min(len(candidates), max(1, round(LOCKOUT_FLIP_FRAC * len(candidates))))

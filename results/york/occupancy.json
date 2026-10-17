@@ -1,0 +1,30 @@
+{
+ "spread": 0.5,
+ "n": 40,
+ "K": 10,
+ "perturbed": {
+  "regret_add_10_pct": {
+   "mean": 0.13,
+   "p5": 0.0,
+   "p95": 0.48
+  },
+  "regret_best_19_pct": {
+   "mean": 2.06,
+   "p5": 0.01,
+   "p95": 4.73
+  },
+  "gain_best_19_vs_published_pct": {
+   "mean": 74.25,
+   "p5": 63.39,
+   "p95": 86.77
+  }
+ },
+ "time_blind": {
+  "add_10_lives": 0.17044,
+  "add_10_lives_time_aware": 0.17483,
+  "add_10_loss_pct": 2.52,
+  "best_19_lives": 0.15876,
+  "best_19_lives_time_aware": 0.17288,
+  "best_19_loss_pct": 8.16
+ }
+}
