@@ -43,3 +43,7 @@ With `x_j` = AED at site j and `z_ipk` = cell i in period p reached within band 
 
 Reachable sets grow with k, so the covered terms add up to `rate_ip * b(fastest band)`.
 Solved with HiGHS through `scipy.optimize.milp`.
+
+Only `x` is declared integer. For fixed binary `x` each `z_ipk` is either forced to 0 or
+free up to 1, and the objective pushes it to 1, so the optimum is integral anyway. This
+keeps the solver fast: about 13,700 rows solve in a few seconds.
