@@ -19,6 +19,9 @@ describe.skipIf(!lead)("TypeScript port vs the lead's Python results", () => {
     expect(lead!.params.ems_response_s).toBe(DEFAULT_PARAMS.emsResponseS);
     expect(lead!.params.walk_speed_mps).toBe(DEFAULT_PARAMS.walkSpeedMps);
     expect(lead!.params.survival_k_per_min).toBe(DEFAULT_PARAMS.survivalKPerMin);
+    expect(lead!.params.shockable_fraction).toBe(DEFAULT_PARAMS.shockableFraction);
+    expect(lead!.params.away_time_share).toBe(DEFAULT_PARAMS.awayTimeShare);
+    expect(lead!.params.public_fraction).toBe(DEFAULT_PARAMS.publicFraction);
   });
 
   it("evaluate() reproduces the lead's ILP lives for every placement", () => {

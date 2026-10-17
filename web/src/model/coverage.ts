@@ -24,12 +24,15 @@ export function survival(tS: number, params: Params): number {
     : Math.max(0, params.survivalS0 * (1 - params.survivalKPerMin * tMin));
 }
 
-/** Band upper edges and benefit vs EMS, b_k = max(0, S(T_k) - S(ems)); zero bands dropped. */
+/**
+ * Band upper edges and benefit vs EMS, b_k = f * max(0, S(T_k) - S(ems)); zero bands dropped.
+ * f = shockableFraction: an AED only helps arrests with a shockable rhythm (VF/pVT).
+ */
 export function bandBenefits(params: Params): { edges: number[]; b: number[] } {
   const sEms = survival(params.emsResponseS, params);
   const edges: number[] = [], b: number[] = [];
   for (const e of params.bandEdgesS) {
-    const v = Math.max(0, survival(e, params) - sEms);
+    const v = params.shockableFraction * Math.max(0, survival(e, params) - sEms);
     if (v > 0) { edges.push(e); b.push(v); }
   }
   return { edges, b };

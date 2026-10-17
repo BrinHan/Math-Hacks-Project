@@ -77,8 +77,9 @@ export function generateInstance(seed = 0, opts: GenOptions = {}, params: Params
       cellXY[2 * i + 1] = (gy + 0.5) * step;
       const people = rng.gamma(2, 50);
       for (let p = 0; p < P; p++) {
+        // Same demand rule as aed/data/synthetic.py: hazard for people in public = public / away share.
         cellRate[i * P + p] = people * PERIOD_PEOPLE[p] * params.incidencePer100kYr / 1e5
-          * params.publicFraction * PERIOD_HOURS[p] / 24;
+          * (params.publicFraction / params.awayTimeShare) * PERIOD_HOURS[p] / 24;
       }
     }
   }

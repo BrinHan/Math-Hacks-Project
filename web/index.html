@@ -21,7 +21,7 @@
         </div>
       </header>
 
-      <p class="blurb">Expected cardiac-arrest survivors per year compared with waiting for the ambulance. Demand and sites are synthetic.</p>
+      <p class="blurb">Expected cardiac-arrest survivors per year compared with waiting for the ambulance. The team's campus model has 30 buildings with occupancy by time of day; it is illustrative, not measured York data.</p>
 
       <section class="group">
         <h2 class="group-title">Scenario</h2>
@@ -29,8 +29,8 @@
         <fieldset class="field">
           <legend>Dataset</legend>
           <div class="seg">
-            <label><input type="radio" name="dataset" value="lead" checked /><span>Lead results</span></label>
-            <label><input type="radio" name="dataset" value="synthetic" /><span>Synthetic</span></label>
+            <label><input type="radio" name="dataset" value="lead" checked /><span>Team results</span></label>
+            <label><input type="radio" name="dataset" value="synthetic" /><span>Random grid</span></label>
           </div>
           <p id="datasetNote" class="field-note"></p>
         </fieldset>
@@ -96,6 +96,7 @@
             <div class="chart-legend" aria-hidden="true">
               <span><i class="ln" style="background:#0d9488"></i>ILP</span>
               <span><i class="ln dash" style="--c:#9333ea"></i>Greedy</span>
+              <span><i class="ln dashdot" style="--c:#c2410c"></i>Population-only</span>
               <span><i class="sw" style="background:rgb(13 148 136 / .3)"></i>90% Monte Carlo</span>
               <span><i class="ln dot"></i>Existing only</span>
             </div>

@@ -5,6 +5,7 @@ import type { KCurveRow, MCRow, OATRow } from "./data";
 const C = {
   ilp: "#0d9488",     // teal 600
   greedy: "#9333ea",  // violet 600
+  pop: "#c2410c",     // orange 700: population-only baseline (validated as a 3-series set)
   low: "#2563eb",     // blue 600: parameter at its low value
   high: "#ea580c",    // orange 600: parameter at its high value
   grid: "#23262d",
@@ -20,6 +21,8 @@ const PARAM_LABELS: Record<string, [string, (v: number) => string]> = {
   walk_speed_mps: ["Walking speed", (v) => `${v.toFixed(1)} m/s`],
   survival_k_per_min: ["Survival decay", (v) => `${(v * 100).toFixed(0)}%/min`],
   survival_S0: ["Survival at t = 0", (v) => `${(v * 100).toFixed(0)}%`],
+  shockable_fraction: ["Shockable rhythm", (v) => `${(v * 100).toFixed(0)}%`],
+  away_time_share: ["Time away from home", (v) => `${(v * 100).toFixed(0)}%`],
   incidence_per_100k_yr: ["Arrest incidence", (v) => `${v.toFixed(0)}/100k`],
   public_fraction: ["Public share", (v) => `${(v * 100).toFixed(0)}%`],
   detour_factor: ["Detour factor", (v) => `×${v.toFixed(2)}`],
@@ -92,6 +95,10 @@ export function drawKCurve(host: HTMLElement, rows: KCurveRow[], mc: MCRow[], cu
   // current K
   s += `<line x1="${x(current)}" x2="${x(current)}" y1="${m.t}" y2="${m.t + ih}" stroke="${C.ink3}" stroke-width="1"/>`;
   // series
+  const hasPop = rows.every((r) => typeof r.pop_lives === "number");
+  if (hasPop) {
+    s += `<path d="${line(rows.map((r) => [r.K, r.pop_lives!]))}" fill="none" stroke="${C.pop}" stroke-width="2" stroke-dasharray="7 3 1.5 3" stroke-linejoin="round"/>`;
+  }
   s += `<path d="${line(rows.map((r) => [r.K, r.greedy_lives]))}" fill="none" stroke="${C.greedy}" stroke-width="2" stroke-dasharray="5 3" stroke-linejoin="round"/>`;
   s += `<path d="${line(rows.map((r) => [r.K, r.ilp_lives]))}" fill="none" stroke="${C.ilp}" stroke-width="2" stroke-linejoin="round"/>`;
   // marker at current K (2px surface ring)
@@ -102,11 +109,17 @@ export function drawKCurve(host: HTMLElement, rows: KCurveRow[], mc: MCRow[], cu
   }
   // direct labels at the right end, nudged apart so they never collide
   const last = rows[rows.length - 1];
-  let ly1 = y(last.ilp_lives), ly2 = y(last.greedy_lives);
-  if (Math.abs(ly1 - ly2) < 13) { const mid = (ly1 + ly2) / 2; ly1 = mid - 7; ly2 = mid + 7; }
-  s += `<text x="${m.l + iw + 6}" y="${ly1 + 3.5}" class="dlabel">ILP</text>`;
-  s += `<text x="${m.l + iw + 6}" y="${ly2 + 3.5}" class="dlabel muted">Greedy</text>`;
-  s += `<text x="${m.l + iw + 6}" y="${y(ex) + 3.5}" class="dlabel muted">Existing</text>`;
+  const labels = [
+    { text: "ILP", y: y(last.ilp_lives), cls: "dlabel" },
+    { text: "Greedy", y: y(last.greedy_lives), cls: "dlabel muted" },
+    ...(hasPop ? [{ text: "Population", y: y(last.pop_lives!), cls: "dlabel muted" }] : []),
+    { text: "Existing", y: y(ex), cls: "dlabel muted" },
+  ].sort((a, b) => a.y - b.y);
+  // Push labels down so neighbours sit at least 12px apart, then pull the stack back inside the plot.
+  for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 12);
+  const overflow = labels[labels.length - 1].y - (m.t + ih);
+  if (overflow > 0) labels.forEach((l) => (l.y -= overflow));
+  for (const l of labels) s += `<text x="${m.l + iw + 6}" y="${l.y + 3.5}" class="${l.cls}">${l.text}</text>`;
   // hover layer
   s += `<line class="xhair" x1="0" x2="0" y1="${m.t}" y2="${m.t + ih}" stroke="${C.ink2}" stroke-width="1" visibility="hidden"/>`;
   s += `<rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" style="cursor:pointer"/>`;
@@ -131,6 +144,7 @@ export function drawKCurve(host: HTMLElement, rows: KCurveRow[], mc: MCRow[], cu
       `<div><i style="background:${C.ilp}"></i>ILP<b>${r.ilp_lives.toFixed(3)}</b></div>` +
       `<div><i style="background:${C.greedy}"></i>Greedy<b>${r.greedy_lives.toFixed(3)}</b></div>` +
       `<div><i class="none"></i>Swap<b>${r.swap_lives.toFixed(3)}</b></div>` +
+      (hasPop ? `<div><i style="background:${C.pop}"></i>Population-only<b>${r.pop_lives!.toFixed(3)}</b></div>` : "") +
       (band ? `<div><i style="background:${C.ilp};opacity:.35"></i>90% MC<b>${band.p5.toFixed(2)}–${band.p95.toFixed(2)}</b></div>` : "") +
       `<div class="tip-f">Gap ${r.gap_pct.toFixed(1)}% · click to set budget</div>`;
     const pr = plot.getBoundingClientRect();

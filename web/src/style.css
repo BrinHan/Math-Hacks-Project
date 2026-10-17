@@ -313,6 +313,7 @@ td.freq.strong { color: var(--text); }
 .chart-legend i { display: inline-block; flex: none; }
 .chart-legend i.ln { width: 14px; height: 2px; border-radius: 1px; }
 .chart-legend i.ln.dash { background: repeating-linear-gradient(to right, var(--c) 0 5px, transparent 5px 8px); }
+.chart-legend i.ln.dashdot { background: repeating-linear-gradient(to right, var(--c) 0 6px, transparent 6px 8px, var(--c) 8px 9.5px, transparent 9.5px 12px); }
 .chart-legend i.ln.dot { background: repeating-linear-gradient(to right, var(--text-4) 0 2px, transparent 2px 5px); height: 1.5px; }
 .chart-legend i.sw { width: 10px; height: 10px; border-radius: 2px; }
 .chart-plot { position: relative; padding: 12px 12px 6px; }
