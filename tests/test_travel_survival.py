@@ -52,3 +52,8 @@ def test_floor_delay_adds_directly():
     inst.site_floor_delay[3] += 30.0
     after = travel_time_matrix(inst, Params())
     assert np.allclose(after[:, 3] - before[:, 3], 30.0)
+
+
+def test_linear_band_benefits_non_increasing():
+    edges, b = band_benefits(Params(survival_form="linear"))
+    assert edges.size > 0 and np.all(np.diff(b) <= 0) and np.all(b > 0)
