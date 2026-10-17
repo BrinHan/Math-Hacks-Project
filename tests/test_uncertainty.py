@@ -1,6 +1,7 @@
 import dataclasses
 
 import numpy as np
+import pytest
 
 from aed import uncertainty
 from aed.data.synthetic import generate_instance
@@ -78,3 +79,13 @@ def test_oat_skips_detour_when_walking_paths_are_used(monkeypatch):
     monkeypatch.setattr(uncertainty, "GEN_KWARGS", SMALL)
     monkeypatch.setattr(uncertainty, "_base", with_walk)
     assert "detour_factor" not in {r.param for r in oat_sensitivity(seed=0, budget=3)}
+
+
+def test_triangular_prior_stays_in_range_and_centres_on_base(monkeypatch):
+    monkeypatch.setattr(uncertainty, "PRIOR", "triangular")
+    inst, base, rng = generate_instance(seed=0, **SMALL), Params(), np.random.default_rng(0)
+    draws = [sample_scenario(inst, base, rng)[1] for _ in range(300)]
+    for k, (lo, hi) in RANGES.items():
+        v = np.array([getattr(p, k) for p in draws])
+        assert np.all((v >= lo) & (v <= hi))
+        assert v.mean() == pytest.approx((lo + getattr(base, k) + hi) / 3, rel=0.05)

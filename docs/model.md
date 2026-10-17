@@ -6,8 +6,9 @@ some AEDs already exist.
 
 ## Demand
 
-The campus is a grid of cells i. Over a day there are three periods p (day 10 h,
-evening 6 h, night 8 h). Expected public cardiac arrests per year in cell i during p:
+The campus is a grid of cells i. The week has five periods p (weekday morning, afternoon
+and evening, night, weekend; `PERIOD_HOURS` in `aed/data/york.py`). Expected public
+cardiac arrests per year in cell i during p:
 
 ```
 rate_ip = people_ip * incidence / 100,000 * (public_fraction / away_time_share) * hours_p / 24
@@ -19,6 +20,16 @@ arrests happen in public while people spend 31.3% of their time away from home (
 healthier people are the ones out). Arrests at home are excluded, with one stated
 exception: residents of residential halls are counted (assumption 11) and given the same
 public hazard ratio, although their at-home hazard would be about 2x higher.
+
+Where the ratio comes from. Take N people with incidence λ per person-year. They spend a
+share a = `away_time_share` of their time away from home, and a share f = `public_fraction`
+of their arrests happen there. Let h be the arrest rate per person-year spent in public.
+Counting public arrests two ways gives `h * a * N = f * λ * N`, so `h = λ * f / a`. A person
+on campus for a fraction `hours_p / 24` of the day therefore contributes
+`λ * (f / a) * hours_p / 24`, which is the formula above. The step assumes that time away
+from home is time in a public setting (CARES counts every non-home, non-nursing-home arrest
+as public), and that the hazard per hour in public is the same for everyone out. Both are
+approximations: the campus is younger than the population behind λ (assumption 12).
 
 ## Time to defibrillation
 
@@ -91,10 +102,27 @@ saved roughly double (0.175 to 0.324 at K = 10). The decision barely changes:
 
 So the curve's shape sets how many lives the plan saves, not where the AEDs should go.
 
+## Occupancy schedule
+
+Occupancy comes from an assumed schedule, because York's timetable needs a login.
+`experiments/occupancy.py` tests it two ways (`results/york/occupancy.json`):
+
+- Scaling every schedule value by an independent factor in [0.5, 1.5] (40 draws). The
+  K = 10 plan loses 0.13% on average against re-optimising (95th percentile 0.48%). The
+  best 19 loses 2.1% (95th percentile 4.7%). The re-siting gain over York's published 19
+  stays between +63% and +87% (5th to 95th percentile), around the base +74%.
+- Flattening the schedule so demand is the same all week. That plan, scored under the real
+  schedule, loses 2.5% at K = 10 and 8.2% for the best 19. So modelling the week adds a few
+  percent; most of the gain comes from where the AEDs are relative to people and paths.
+
 ## Uncertainty
 
 Monte Carlo: each scenario draws every parameter uniformly in its range, scales demand by
-0.7-1.3, and flips the opening hours of 10% of sites. We report the base-case plan's lives
+0.7-1.3, and flips the opening hours of 10% of sites. Uniform is deliberate: the sources
+give ranges, not distributions, and uniform puts the most weight on the range ends, so it
+gives the widest band. A triangular prior over the same ranges, peaked at the base values,
+gives a K = 10 mean of 0.166 with a 90% interval of 0.084-0.302, against 0.156 and
+0.060-0.335 for uniform (`experiments/prior_check.py`, `results/york/prior_check.json`). We report the base-case plan's lives
 saved as a mean with a 90% interval, and how often each site is chosen when re-optimised.
 One-at-a-time sensitivity moves each parameter to its low and high value (tornado chart).
 
