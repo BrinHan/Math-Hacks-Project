@@ -25,7 +25,7 @@ HEADER = ["K", "ilp_lives", "greedy_lives", "swap_lives", "pop_lives", "existing
           "gap_pct", "ilp_time_s"]
 
 
-def main(seed: int = 0, kmax: int = 30, out="results", **gen_kwargs) -> Path:
+def main(seed: int = 0, kmax: int = 30, out="results", verbose: bool = True, **gen_kwargs) -> Path:
     inst, cov = build(seed=seed, **gen_kwargs)
     existing = evaluate(cov, cov.site_existing)
     rows = []
@@ -36,8 +36,9 @@ def main(seed: int = 0, kmax: int = 30, out="results", **gen_kwargs) -> Path:
         pop = solve_population(inst, cov, K).lives if solve_population else math.nan
         gap = 0.0 if ilp.lives == 0 else 100 * (ilp.lives - greedy.lives) / ilp.lives
         rows.append([K, ilp.lives, greedy.lives, swap.lives, pop, existing, gap, ilp.runtime_s])
-        print(f"K={K:2d}  ilp={ilp.lives:.4f}  greedy={greedy.lives:.4f}  swap={swap.lives:.4f}  "
-              f"pop={pop:.4f}  gap={gap:5.2f}%  ilp_t={ilp.runtime_s:.1f}s")
+        if verbose:
+            print(f"K={K:2d}  ilp={ilp.lives:.4f}  greedy={greedy.lives:.4f}  swap={swap.lives:.4f}  "
+                  f"pop={pop:.4f}  gap={gap:5.2f}%  ilp_t={ilp.runtime_s:.1f}s")
 
     path = Path(out) / "k_curve.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,5 +55,6 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--kmax", type=int, default=30)
     ap.add_argument("--out", default="results")
+    ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
-    main(seed=a.seed, kmax=a.kmax, out=a.out)
+    main(seed=a.seed, kmax=a.kmax, out=a.out, verbose=not a.quiet)
