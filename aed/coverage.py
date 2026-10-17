@@ -25,6 +25,14 @@ class Coverage:
     site_existing: np.ndarray  # (J,) bool
     n_periods: int
 
+    @property
+    def n_rows(self) -> int:
+        return self.A.shape[0]
+
+    def max_lives(self) -> float:
+        """Lives saved with an AED at every site: an upper bound for any budget."""
+        return float(self.weights.sum())
+
 
 def build_coverage(inst: Instance, tau: np.ndarray, params: Params) -> Coverage:
     edges, b = band_benefits(params)
