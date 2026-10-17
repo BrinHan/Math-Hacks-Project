@@ -40,3 +40,8 @@ def test_validate_rejects_non_bool_open():
 def test_summary_mentions_counts():
     text = generate_instance(seed=0, **SMALL).summary()
     assert "36 cells" in text and "10 sites (1 existing)" in text and "arrests/yr" in text
+
+
+def test_metres_to_latlon_east():
+    (lat, lon), = metres_to_latlon(np.array([[1000.0, 0.0]]), (43.0, -80.0))
+    assert lat == pytest.approx(43.0) and lon > -80.0
