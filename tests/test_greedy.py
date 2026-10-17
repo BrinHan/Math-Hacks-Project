@@ -37,3 +37,8 @@ def test_greedy_respects_costs():
     _, cov = build(seed=0, grid_n=12, n_sites=40, n_existing=2, outdoor_cost=1.5)
     sol = solve_greedy(cov, 3)
     assert cov.site_cost[sol.x & ~cov.site_existing].sum() <= 3 + 1e-9
+
+
+def test_greedy_deterministic():
+    _, cov = build(seed=1, grid_n=12, n_sites=40, n_existing=2)
+    assert np.array_equal(solve_greedy(cov, 4).x, solve_greedy(cov, 4).x)
