@@ -1,0 +1,4 @@
+[out:json][timeout:60];
+(way["amenity"="university"]["name"~"York University"](43.74,-79.54,43.80,-79.47);
+relation["amenity"="university"]["name"~"York University"](43.74,-79.54,43.80,-79.47););
+out geom tags;

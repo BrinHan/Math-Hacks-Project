@@ -1,0 +1,4 @@
+[out:json][timeout:120];
+way(15396822);map_to_area->.a;
+(way["building"](area.a);relation["building"](area.a););
+out geom tags;

@@ -1,0 +1,250 @@
+code,room,building,room_type,capacity
+DB,0001,Victor Phillip Dahdaleh Building,Lecture Hall,139
+DB,0004,Victor Phillip Dahdaleh Building,Seminar Room,26
+DB,0005,Victor Phillip Dahdaleh Building,Lecture Hall,70
+DB,0006,Victor Phillip Dahdaleh Building,Lecture Hall,96
+DB,0007,Victor Phillip Dahdaleh Building,Lecture Hall,69
+DB,0008,Victor Phillip Dahdaleh Building,Seminar Room,7
+DB,0009,Victor Phillip Dahdaleh Building,Seminar Room,29
+HNE,001,"Health, Nursing & Environmental Studies Building",Classroom,55
+ACE,001,Accolade East,Lecture Hall,161
+DB,0010,Victor Phillip Dahdaleh Building,Lecture Hall,97
+DB,0011,Victor Phillip Dahdaleh Building,Seminar Room,29
+DB,0012,Victor Phillip Dahdaleh Building,Seminar Room,7
+DB,0013,Victor Phillip Dahdaleh Building,Seminar Room,29
+DB,0014,Victor Phillip Dahdaleh Building,Lecture Hall,100
+DB,0015,Victor Phillip Dahdaleh Building,Seminar Room,32
+DB,0016,Victor Phillip Dahdaleh Building,Lecture Hall,146
+ACE,002,Accolade East,Classroom,71
+ACW,002,Accolade West,Classroom,40
+ACW,003,Accolade West,Classroom,40
+ACE,003,Accolade East,Lecture Hall,69
+ACW,004,Accolade West,Lecture Hall,111
+ACE,004 - Mirkopoulos Screening Room,Accolade East,Classroom,80
+ACE,005,Accolade East,Lecture Hall,67
+ACW,005,Accolade West,Lecture Hall,109
+ACW,006,Accolade West,Lecture Hall,125
+ACE,006,Accolade East,Seminar Room,25
+ACE,007,Accolade East,Lecture Hall,69
+ACE,008,Accolade East,Seminar Room,25
+ACW,008 - Visual Arts,Accolade West,Classroom,40
+ACE,009,Accolade East,Classroom,78
+ACW,009 - Visual Arts,Accolade West,Classroom,38
+SCS,010,School of Continuing Studies,Classroom,60
+ACE,010,Accolade East,Seminar Room,25
+ACE,011,Accolade East,Classroom,78
+ACE,012,Accolade East,Seminar Room,25
+SCS,012,School of Continuing Studies,Classroom,60
+ACE,013,Accolade East,Classroom,78
+HNE,030,"Health, Nursing & Environmental Studies Building",Lecture Hall,51
+HNE,031,"Health, Nursing & Environmental Studies Building",Lecture Hall,59
+HNE,032,"Health, Nursing & Environmental Studies Building",Lecture Hall,51
+HNE,033,"Health, Nursing & Environmental Studies Building",Lecture Hall,52
+HNE,034,"Health, Nursing & Environmental Studies Building",Lecture Hall,52
+HNE,035,"Health, Nursing & Environmental Studies Building",Lecture Hall,56
+HNE,036,"Health, Nursing & Environmental Studies Building",Lecture Hall,39
+HNE,037,"Health, Nursing & Environmental Studies Building",Lecture Hall,52
+HNE,038,"Health, Nursing & Environmental Studies Building",Lecture Hall,135
+DB,1004,Victor Phillip Dahdaleh Building,Lecture Hall,71
+DB,1005,Victor Phillip Dahdaleh Building,Lecture Hall,71
+VH,1005,Vari Hall,Seminar Room,26
+HNE,101,"Health, Nursing & Environmental Studies Building",Seminar Room,25
+LSB,101,Life Sciences Building,Classroom,48
+MC,101,Mclaughlin College,Seminar Room,25
+DB,1016,Victor Phillip Dahdaleh Building,Classroom,53
+VH,1016,Vari Hall,Seminar Room,22
+VH,1018,Vari Hall,Seminar Room,22
+MC,101A,Mclaughlin College,Seminar Room,10
+VC,102,Vanier College,Classroom,33
+ACE,102 - The Price Family Cinema,Accolade East,Lecture Hall,498
+VH,1020,Vari Hall,Seminar Room,18
+VH,1022,Vari Hall,Seminar Room,18
+FC,103,Founders College,Seminar Room,16
+HNE,103,"Health, Nursing & Environmental Studies Building",Classroom,32
+LSB,103,Life Sciences Building,Lecture Hall,144
+MC,103,Mclaughlin College,Conference Room,48
+VC,103,Vanier College,Classroom,39
+ACW,104,Accolade West,Classroom,40
+FC,104,Founders College,Classroom,53
+HNE,104,"Health, Nursing & Environmental Studies Building",Seminar Room,32
+VC,104,Vanier College,Classroom,38
+SCS,104,School of Continuing Studies,Classroom,120
+FC,105,Founders College,Seminar Room,20
+HNE,105,"Health, Nursing & Environmental Studies Building",Seminar Room,33
+LSB,105,Life Sciences Building,Lecture Hall,120
+VC,105,Vanier College,Seminar Room,14
+FC,106,Founders College,Classroom,52
+LSB,106,Life Sciences Building,Lecture Hall,143
+VC,106,Vanier College,,35
+ACW,106,Accolade West,Lecture Hall,77
+CC,106,Calumet College,Classroom,51
+LSB,107,Life Sciences Building,Classroom,48
+SLH,107,Stedman Lecture Hall,Seminar Room,41
+VC,107,Vanier College,,45
+VC,107A,Vanier College,Classroom,30
+FC,108,Founders College,Classroom,54
+CC,108,Calumet College,Classroom,53
+VC,108 - Ap Typ,Vanier College,Seminar Room,27
+CC,109,Calumet College,Classroom,36
+MC,109,Mclaughlin College,,26
+ACW,109,Accolade West,Lecture Hall,369
+FC,109 - Yueli,Founders College,Seminar Room,25
+CLH,110,Curtis Lecture Hall,Lecture Hall,50
+SCS,110,School of Continuing Studies,Classroom,60
+FC,110 - Yueli,Founders College,Seminar Room,17
+MC,111,Mclaughlin College,Classroom,34
+MC,112,Mclaughlin College,Classroom,34
+FC,112 - Yueli,Founders College,Seminar Room,24
+FC,113,Founders College,,27
+MC,113,Mclaughlin College,Seminar Room,14
+VC,114,Vanier College,Seminar Room,18
+FC,114 - Yueli,Founders College,Seminar Room,28
+VC,115,Vanier College,Classroom,24
+CB,115,Chemistry Building,Lecture Hall,79
+VH,1152,Vari Hall,Seminar Room,15
+VH,1152A,Vari Hall,Classroom,83
+VH,1154 - Languages,Vari Hall,Seminar Room,25
+VH,1158,Vari Hall,Seminar Room,23
+VC,116,Vanier College,Seminar,26
+FC,117,Founders College,Classroom,27
+VC,117,Vanier College,Seminar Room,17
+VC,118,Vanier College,RAC teaching space,30
+WC,118,Winters College,Classroom,52
+VC,119,Vanier College,Classroom,28
+CB,120,Chemistry Building,Seminar Room,20
+CB,121 - Lecture Hall,Chemistry Building,Robert Lundell Auditorium,150
+CB,122,Chemistry Building,Classroom,20
+CB,129,Chemistry Building,Classroom,49
+VC,135,Vanier College Lecture Hall,Lecture Hall,251
+VH,2000,Vari Hall,Seminar Room,21
+VH,2005,Vari Hall,Seminar Room,26
+VH,2009,Vari Hall,Seminar Room,25
+VH,2016,Vari Hall,Seminar Room,21
+FC,202,Founders College,Classroom,45
+FC,203,Founders College,Classroom,68
+SC,203,Stong College,Seminar Room,15
+ACW,203,Accolade West,Active Learning Classroom,150
+BSB,203,Behavioural Sciences Building,Seminar Room,12
+ACW,204,Accolade West,Classroom,50
+BSB,204,Behavioural Sciences Building,Seminar Room,13
+SC,205,Stong College,Classroom,22
+ACW,205,Accolade West,Lecture Hall,77
+ACW,206,Accolade West,Lecture Hall,269
+HNE,206,"Health, Nursing & Environmental Studies Building",Seminar Room,24
+BSB,207,Behavioural Sciences Building,Seminar Room,14
+CC,208,Calumet College,Classroom,32
+ACW,209,Accolade West,Classroom,38
+CC,211,Calumet College,Classroom,51
+MC,211,Mclaughlin College,Classroom,29
+SC,211,Stong College,Classroom,25
+MC,212,Mclaughlin College,Classroom,29
+SC,212,Stong College,Classroom,30
+MC,213,Mclaughlin College,Classroom,44
+MC,214,Mclaughlin College,Classroom,44
+SC,214,Stong College,Classroom,36
+BC,214,Norman Bethune College,Classroom,25
+BC,215,Norman Bethune College,Classroom,51
+MC,215,Mclaughlin College,,28
+MC,216,Mclaughlin College,Seminar Room,28
+SC,216,Stong College,Classroom,43
+SC,219,Stong College,Seminar Room,37
+SC,220,Stong College,Seminar Room,11
+SC,221,Stong College,Seminar Room,37
+SC,222,Stong College,Classroom,37
+SC,223,Stong College,Seminar Room,16
+SC,224,Stong College,Classroom,37
+BC,225,Norman Bethune College,Seminar Room,12
+BC,228,Norman Bethune College,Seminar Room,10
+BC,230,Norman Bethune College,Classroom,40
+HNE,230,"Health, Nursing & Environmental Studies Building",Seminar Room,20
+VH,3000,Vari Hall,Seminar Room,18
+VH,3003 - Asl,Vari Hall,Seminar Room,26
+VH,3004 - Asl,Vari Hall,Seminar Room,27
+VH,3005,Vari Hall,Seminar Room,25
+VH,3006,Vari Hall,Classroom,58
+VH,3009,Vari Hall,Classroom,65
+VH,3017,Vari Hall,Seminar Room,23
+ACW,302,Accolade West,Classroom,42
+SC,302,Stong College,Active Learning Classroom,100
+SC,303,Stong College,Classroom,64
+ACW,303,Accolade West,Classroom,36
+ACW,304,Accolade West,Classroom,36
+SC,304,Stong College,Seminar Room,17
+ACW,305,Accolade West,Classroom,36
+ACW,306,Accolade West,Classroom,36
+ACW,307,Accolade West,Classroom,74
+CFA,312,Joan & Martin Goldfarb Centre For Fine Arts,Lecture Hall,95
+CC,318,Calumet College,Seminar Room,18
+PSE,321,Petrie Science & Engineering Building,Classroom,42
+BC,322,Norman Bethune College,Classroom,28
+BC,323,Norman Bethune College,Classroom,25
+BC,325,Norman Bethune College,Classroom,10
+BSB,328A,Behavioural Sciences Building,Seminar Room,14
+CC,335,Calumet College,Seminar Room,10
+HNE,401,"Health, Nursing & Environmental Studies Building",Lecture Hall,58
+CLH,A,Curtis Lecture Hall,Lecture Hall,169
+LAS,A,Lassonde Building,Lecture Hall,451
+SLH,A,Stedman Lecture Hall,Lecture Hall,124
+VH,A,Vari Hall,Lecture Hall,303
+CLH,B,Curtis Lecture Hall,Lecture Hall,141
+LAS,B,Lassondeuilding,Lecture Hall,202
+SLH,B,Stedman Lecture Hall,Lecture Hall,76
+VH,B,Vari Hall,Lecture Hall,194
+HNE,B10,"Health, Nursing & Environmental Studies Building",Seminar Room,29
+HNE,B11,"Health, Nursing & Environmental Studies Building",Seminar Room,23
+HNE,B15,"Health, Nursing & Environmental Studies Building",Lecture Hall,66
+HNE,B17,"Health, Nursing & Environmental Studies Building",Lecture Hall,58
+CLH,C,Curtis Lecture Hall,Lecture Hall,141
+LAS,C,Lassonde Building,Lecture Hall,246
+SLH,C,Stedman Lecture Hall,Lecture Hall,70
+VH,C,Vari Hall,Lecture Hall,193
+CLH,D,Curtis Lecture Hall,Lecture Hall,167
+VH,D,Vari Hall,Lecture Hall,136
+SLH,D - Lecture Hall,Stedman Lecture Hall,Teleconference Room,235
+CLH,E,Curtis Lecture Hall,Lecture Hall,167
+SLH,E,Stedman Lecture Hall,Lecture Hall,76
+CLH,F,Curtis Lecture Hall,Lecture Hall,173
+SLH,F,Stedman Lecture Hall,Lecture Hall,129
+CLH,G,Curtis Lecture Hall,Lecture Hall,169
+CLH,H,Curtis Lectureall,Lecture Hall,98
+CLH,I,Curtis Lecture Hall,Lecture Hall,495
+CLH,J,Curtis Lecture Hall,Lecture Hall,81
+CLH,K,Curtis Lecture Hall,Lecture Hall,98
+CLH,L,Curtisecture Hall,Lecture Hall,471
+CLH,M,Curtis Lecture Hall,Lecture Hall,81
+R,N102,Nat Taylor Cinema,,122
+R,N120,Ross Building,Classroom,50
+R,N201,Ross Building,Seminar Room,27
+R,N203,Ross Building,Lecture Hall,80
+R,N203A,Ross Building,Seminar Room,18
+R,N812,Ross Building,Seminar Room,18
+R,N814,Ross Building,Seminar Room,15
+R,N836,Ross Building,Seminar Room,20
+R,N836A,Ross Building,Seminar Room,18
+R,S101,Ross Building,Seminar Room,10
+R,S101A,Ross Building,Seminar Room,18
+R,S102,Ross Building,Seminar Room,18
+R,S103,Ross Building,Classroom,47
+R,S104,Ross Building,Seminar Room,17
+R,S105,Ross Building,Classroom,45
+R,S122 - French Studies,Ross Building,Classroom,36
+R,S123 - French Studies,Ross Building,Classroom,36
+R,S125,Ross Building,Seminar Room,21
+R,S127 - Languages,Ross Building,Classroom,31
+R,S128,Ross Building,Seminar Room,32
+R,S129,Ross Building,Classroom,31
+R,S130,Ross Building,Classroom,37
+R,S133,Ross Building,Classroom,37
+R,S136,Ross Building,Classroom,40
+R,S137,Ross Building,Lecture Hall,138
+R,S156,Ross Building,Seminar Room,16
+R,S174,Ross Building,Classroom,51
+R,S201,Ross Building,Lecture Hall,76
+R,S202,Ross Building,Seminar Room,7
+R,S203,Ross Building,Lecture Hall,67
+R,S205,Ross Building,Lecture Hall,60
+R,S501,Ross Building,Seminar Room,13
+R,S507,Ross Building,Classroom,33
+R,S536,Ross Building,Seminar Room,13
+R,S801,Ross Building,,27
+R,S803,Ross Building,,18

@@ -1,0 +1,4 @@
+[out:json][timeout:120];
+way(15396822);map_to_area->.a;
+way["highway"~"^(footway|path|pedestrian|steps|service|residential|cycleway|living_street|track|unclassified|tertiary|secondary|primary)$"](area.a);
+out geom tags;
