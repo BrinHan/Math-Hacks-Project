@@ -1,0 +1,38 @@
+{
+ "params": {
+  "survival_S0": 0.7,
+  "survival_k_per_min": 0.1
+ },
+ "add_10_to_published": {
+  "exp": {
+   "lives": 0.17483,
+   "lives_with_other_form_plan": 0.17448,
+   "regret_pct": 0.205
+  },
+  "linear": {
+   "lives": 0.3242,
+   "lives_with_other_form_plan": 0.3238,
+   "regret_pct": 0.123
+  },
+  "shared_sites": 8,
+  "chosen_sites": 10
+ },
+ "best_19_anywhere": {
+  "exp": {
+   "lives": 0.17288,
+   "lives_with_other_form_plan": 0.17239,
+   "regret_pct": 0.281,
+   "published": 0.0996,
+   "gain_vs_published_pct": 73.57
+  },
+  "linear": {
+   "lives": 0.3205,
+   "lives_with_other_form_plan": 0.31963,
+   "regret_pct": 0.271,
+   "published": 0.19031,
+   "gain_vs_published_pct": 68.41
+  },
+  "shared_sites": 13,
+  "chosen_sites": 19
+ }
+}

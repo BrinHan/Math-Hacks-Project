@@ -21,6 +21,22 @@ def test_greedy_bound(seed):
         assert g.lives == pytest.approx(evaluate(cov, g.x))
 
 
+@pytest.mark.parametrize("seed", [0, 1])
+def test_objective_monotone_submodular(seed):
+    # The premise of the (1 - 1/e) bound: for S subset of T and j outside T,
+    # 0 <= f(T + j) - f(T) <= f(S + j) - f(S).
+    _, cov = build(seed=seed, grid_n=12, n_buildings=8, n_sites=40, n_existing=0)
+    rng = np.random.default_rng(seed)
+    J = cov.A.shape[1]
+    for _ in range(200):
+        T = rng.random(J) < rng.uniform(0.1, 0.6)
+        S = T & (rng.random(J) < 0.5)
+        j = rng.choice(np.flatnonzero(~T))
+        gain_T = evaluate(cov, T | (np.arange(J) == j)) - evaluate(cov, T)
+        gain_S = evaluate(cov, S | (np.arange(J) == j)) - evaluate(cov, S)
+        assert -1e-12 <= gain_T <= gain_S + 1e-12
+
+
 def test_greedy_zero_budget():
     _, cov = build(seed=0, grid_n=12, n_buildings=8, n_sites=40, n_existing=2)
     assert np.array_equal(solve_greedy(cov, 0).x, cov.site_existing)

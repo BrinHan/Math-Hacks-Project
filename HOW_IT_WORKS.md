@@ -25,7 +25,8 @@ The code is in `aed/`:
 
 | Step | File | What it does |
 |---|---|---|
-| Campus data | `aed/data/synthetic.py` | Creates cells, sites, arrests per year, opening hours |
+| Campus data | `aed/data/york.py` | Builds York Keele from `data/york/`: cells, sites, arrests per year, opening hours |
+| Campus data (test) | `aed/data/synthetic.py` | Generates a synthetic campus with the same fields |
 | Travel times | `aed/travel.py` | Time for an AED at each site to reach each cell |
 | Survival and benefit | `aed/survival.py` | How much an earlier AED improves survival |
 | Coverage rows | `aed/coverage.py` | Builds the table of cases the solver scores |
@@ -38,7 +39,7 @@ The code is in `aed/`:
 
 ## 3. The pieces, one at a time
 
-**Cell.** A small square of the campus grid. Each cell has a number of cardiac arrests per year for each period (day, evening, night).
+**Cell.** A small square of the campus grid. Each cell has a number of cardiac arrests per year for each period (weekday morning, afternoon and evening, night, weekend).
 
 **Site.** A place an AED could go, mostly inside buildings, some outdoors. Each site has a cost, a walk-in delay (time inside the building), and opening hours.
 
@@ -47,14 +48,14 @@ The code is in `aed/`:
 **Time band.** A fixed cut-off, such as "within 2 minutes" or "within 3 minutes." The bands go in 1-minute steps up to the ambulance time. A site falls into a band if its travel time is at or below that band's limit.
 
 **Benefit.** How much better a patient's survival chance is if an AED arrives within a band, compared with waiting for the ambulance. It's a probability per arrest.
-- Formula: `S(t) = S0 × exp(−k × t)` is survival if shocked at time t. Benefit for a band = `S(band limit) − S(ambulance time)`, never below 0.
-- Example with the project's values: an AED within 2 minutes gives about 0.29 extra survival chance per arrest. Within 4 minutes, about 0.18.
+- Formula: `S(t) = S0 × exp(−k × t)` is survival if shocked at time t. Benefit for a band = `shockable fraction × (S(band limit) − S(ambulance time))`, never below 0. Only shockable rhythms (about 26.5% of arrests) can be helped by a shock.
+- Example with the project's values: an AED within 2 minutes gives about 0.077 extra survival chance per arrest. Within 4 minutes, about 0.049.
 
 **Row.** One specific case: one cell, in one period, reached within one time band. Each row has:
 - a **weight**: lives per year at stake for that case (arrests × the band's benefit difference)
 - a **reach list**: the sites that get to that cell within that band and are open in that period
 
-The coverage table is the full list of rows. The model has about 13,700 rows.
+The coverage table is the full list of rows. The York model has about 14,900 rows.
 
 **x (one per site).** The decision: 1 means put an AED at that site, 0 means don't.
 

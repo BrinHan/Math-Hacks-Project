@@ -177,6 +177,13 @@ the numerator of the hazard ratio public_fraction / away_time_share.
     Supports `away_time_share`: 68.7% of the day in a residence (86.9% indoors, 5.5% in
     vehicles, 7.6% outdoors), all ages, US 1992-94. Abstract confirmed on Europe PMC.
 
+17. Nemhauser GL, Wolsey LA, Fisher ML (1978). An analysis of approximations for maximizing
+    submodular set functions - I. *Mathematical Programming* 14:265-294.
+    doi:10.1007/BF01588971.
+    Not a parameter source. Supports the greedy guarantee: for a monotone submodular
+    objective and a cardinality budget, greedy reaches at least 1 - 1/e of optimal
+    (`docs/model.md`, Baselines).
+
 ## Parameter summary
 
 | Parameter | Base | Range | Sources | Figure used |
