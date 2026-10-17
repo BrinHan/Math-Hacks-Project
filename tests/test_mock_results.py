@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from aed.instance import metres_to_latlon
+from aed.params import RANGES
 from experiments import make_mock_results
 
 HEADERS = {
@@ -36,3 +37,10 @@ def test_metres_to_latlon_origin():
     assert np.allclose(metres_to_latlon(np.zeros((1, 2)), (43.0, -80.0)), [[43.0, -80.0]])
     north = metres_to_latlon(np.array([[0.0, 111_320.0]]), (43.0, -80.0))
     assert north[0, 0] == pytest.approx(44.0)
+
+
+def test_mock_oat_matches_ranges():
+    rows = read_rows("results/mock/oat.csv")
+    assert {r["param"] for r in rows} == set(RANGES)
+    for r in rows:
+        assert (float(r["low_value"]), float(r["high_value"])) == RANGES[r["param"]]

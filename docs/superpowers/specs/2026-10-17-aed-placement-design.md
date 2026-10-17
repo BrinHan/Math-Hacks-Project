@@ -106,6 +106,8 @@ explicit `ASSUMPTION` label.
 `λ_ip = pop_ip × incidence/100k × public_fraction × (period_hours_p / 24)`,
 where `pop_ip` is the people present in the cell during period p (foot traffic).
 Arrests at home are excluded by `public_fraction`, which is a stated assumption.
+(Superseded 2026-10-17: the building-occupancy generator uses the hazard ratio
+`public_fraction / away_time_share` instead; see docs/model.md.)
 
 **Travel time.** `d_ij` = Euclidean distance × detour factor (fallback; OSMnx
 network distance replaces it later).

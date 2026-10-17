@@ -55,6 +55,9 @@ class Instance:
                 raise ValueError(f"{name} has shape {got}, expected {want}")
         if len(self.site_kind) != J:
             raise ValueError(f"site_kind has {len(self.site_kind)} entries, expected {J}")
+        for name in ("cell_xy", "cell_rate", "site_xy", "site_cost", "site_floor_delay"):
+            if not np.all(np.isfinite(getattr(self, name))):
+                raise ValueError(f"{name} has non-finite values")
         for name in ("cell_rate", "site_cost", "site_floor_delay"):
             if np.any(getattr(self, name) < 0):
                 raise ValueError(f"{name} has negative values")

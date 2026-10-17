@@ -84,3 +84,12 @@ def test_band_sets_nested(tiny_instance):
 def test_coverage_summary(tiny_instance):
     s = cov_for(tiny_instance).summary()
     assert set(s) == {"rows", "sites", "nonzeros", "max_lives"} and s["sites"] == 8
+
+
+def test_zero_shockable_fraction_gives_no_benefit(tiny_instance):
+    from aed.solvers import SOLVERS
+    from aed.solvers.population import solve_population
+    cov = cov_for(tiny_instance, Params(shockable_fraction=0.0))
+    assert cov.n_rows == 0
+    assert all(solve(cov, 3).lives == 0.0 for solve in SOLVERS.values())
+    assert solve_population(tiny_instance, cov, 3).lives == 0.0
