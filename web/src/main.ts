@@ -24,8 +24,10 @@ const BANDS = [
   { edge: Infinity, colour: "#fc8d59", label: "6 min – EMS" },
 ];
 const UNREACHED = "#d73027";
-const ACCENT = "#2dd4bf"; // teal: selection, active states and primary actions only
-const SITE = { existing: "#60a5fa", new: "#f4f4f5", locked: "#52525b" };
+const ACCENT = "#1a73e8"; // Google blue: selection, active states and primary actions only
+// Recommended AEDs are dark so they never read as a time band; existing ones are blue.
+const SITE = { existing: "#1a73e8", new: "#202124", locked: "#9aa0a6" };
+const MUST = "#f9ab00"; // dashed outline on must-include sites
 // Muted, low-chroma tags so building type reads as metadata, not as another status colour.
 const KIND_COLOURS: Record<string, string> = {
   academic: "#9a8fbf", library: "#7f9fbf", residential: "#86a88f",
@@ -91,19 +93,14 @@ const isCustom = () => settings().source.kind === "custom";
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 // ---------- map ----------
-const map = L.map("map", { preferCanvas: true, zoomControl: true, maxBoundsViscosity: 1.0 });
-// Esri Dark Gray Canvas (no API key): a muted base under the overlay, labels on top of it.
-const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
-const tileOpts = { maxZoom: 19, maxNativeZoom: 16 };
-L.tileLayer(`${ESRI}/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
-  ...tileOpts,
+const map = L.map("map", { preferCanvas: true, zoomControl: false, maxBoundsViscosity: 1.0 });
+// Esri World Street Map (no API key): a familiar, Google-like street base under the overlay.
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, maxNativeZoom: 18,
   attribution: '&copy; Esri &middot; &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
-map.createPane("labels");
-map.getPane("labels")!.style.zIndex = "450"; // above the cell overlay, below markers
-map.getPane("labels")!.style.pointerEvents = "none";
-L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { ...tileOpts, pane: "labels" }).addTo(map);
+L.control.zoom({ position: "bottomright" }).addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
 // control's on/off state persists.
 const heatLayer = L.layerGroup().addTo(map);       // cells / demand coloured by time to the nearest AED
@@ -112,14 +109,43 @@ const candidateLayer = L.layerGroup();             // candidate sites without an
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
 const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
-L.control.layers(undefined, {
-  "Building outlines": buildingLayer,
-  "Optimization heatmap": heatLayer,
-  "Raw demand points": demandLayer,
-  "Existing AEDs": existingLayer,
-  "Recommended AEDs": newLayer,
-  "Candidate AED sites": candidateLayer,
-}, { position: "topright", collapsed: window.matchMedia("(max-width: 600px)").matches }).addTo(map);
+// Google-style "Layers" button (bottom left) with a popover of toggles.
+const LAYERS: [string, L.LayerGroup][] = [
+  ["Time-to-AED heatmap", heatLayer],
+  ["Recommended AEDs", newLayer],
+  ["Existing AEDs", existingLayer],
+  ["Candidate AED sites", candidateLayer],
+  ["Demand points", demandLayer],
+  ["Building outlines", buildingLayer],
+];
+const layersCtl = new L.Control({ position: "bottomleft" });
+layersCtl.onAdd = () => {
+  const wrap = L.DomUtil.create("div", "layers-ctl");
+  const btn = Object.assign(document.createElement("button"), { type: "button", className: "layers-btn" });
+  btn.setAttribute("aria-expanded", "false");
+  btn.setAttribute("aria-haspopup", "true");
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5z"/><path d="m2 13 10 5 10-5"/></svg>Layers';
+  const pop = document.createElement("div");
+  pop.className = "layers-pop";
+  pop.hidden = true;
+  pop.innerHTML = "<h3>Map details</h3>";
+  for (const [label, layer] of LAYERS) {
+    const row = document.createElement("label");
+    const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: map.hasLayer(layer) });
+    box.addEventListener("change", () => (box.checked ? layer.addTo(map) : layer.remove()));
+    row.append(box, document.createTextNode(label));
+    pop.append(row);
+  }
+  const setOpen = (open: boolean) => { pop.hidden = !open; btn.setAttribute("aria-expanded", String(open)); };
+  btn.addEventListener("click", () => setOpen(pop.hidden));
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target as Node)) setOpen(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
+  wrap.append(pop, btn);
+  L.DomEvent.disableClickPropagation(wrap);
+  L.DomEvent.disableScrollPropagation(wrap);
+  return wrap;
+};
+layersCtl.addTo(map);
 
 let fittedFor = "";
 let viewBounds: L.LatLngBounds | null = null;
@@ -131,11 +157,30 @@ function lockToData(animate = false) {
   map.invalidateSize();
   map.setMinZoom(0); // let fitBounds pick the zoom before clamping to it
   map.setMaxBounds(undefined as unknown as L.LatLngBounds);
-  const fitZoom = map.getBoundsZoom(viewBounds, false, L.point(20, 20));
-  map.setMinZoom(Math.max(0, fitZoom - (viewLoose ? 2 : 0)));
-  map.setMaxBounds(viewBounds.pad(viewLoose ? 0.75 : 0.05));
-  if (animate && !document.hidden && !reducedMotion.matches) map.flyToBounds(viewBounds, { padding: [20, 20], duration: 0.8 });
-  else map.fitBounds(viewBounds, { padding: [20, 20], animate: false });
+  const { tl, br } = viewPadding();
+  // The lock is taken from the fitted view (which leaves room for the panel), not the raw data,
+  // so panning never pushes the data back under the panel.
+  const lock = () => {
+    map.setMinZoom(Math.max(0, map.getZoom() - (viewLoose ? 2 : 0)));
+    map.setMaxBounds(map.getBounds().pad(viewLoose ? 0.75 : 0.15));
+  };
+  if (animate && !document.hidden && !reducedMotion.matches) {
+    map.once("moveend", lock);
+    map.flyToBounds(viewBounds, { paddingTopLeft: tl, paddingBottomRight: br, duration: 0.8 });
+  } else {
+    map.fitBounds(viewBounds, { paddingTopLeft: tl, paddingBottomRight: br, animate: false });
+    lock();
+  }
+}
+
+/** Screen space taken by floating UI, so fitted data lands in the visible part of the map. */
+function viewPadding(): { tl: L.Point; br: L.Point } {
+  const open = document.body.classList.contains("panel-open");
+  const panel = document.getElementById("panel")!.getBoundingClientRect();
+  if (window.innerWidth <= 700) {
+    return { tl: L.point(16, 64), br: L.point(16, (open ? window.innerHeight - panel.top : 56) + 24) };
+  }
+  return { tl: L.point(open ? panel.right + 36 : 96, 64), br: L.point(72, 96) };
 }
 // The container can change size after first paint (fonts, layout breakpoints); refit then.
 let lastSize = "";
@@ -170,7 +215,7 @@ const legend = new L.Control({ position: "bottomleft" });
 legend.onAdd = () => {
   const div = L.DomUtil.create("div", "legend");
   const item = (colour: string, label: string, dot = false) =>
-    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #0b0f17,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
+    `<li><i class="${dot ? "dot" : ""}" style="background:${colour}${dot ? `;box-shadow:0 0 0 2px #fff,0 0 0 3px ${colour}` : ""}"></i>${label}</li>`;
   div.innerHTML =
     `<button type="button" class="legend-toggle" aria-expanded="true"><h3>Legend</h3></button>` +
     `<div class="legend-body"><h3>Fastest AED</h3><ul>` +
@@ -211,9 +256,9 @@ function drawMap() {
   for (const g of [heatLayer, demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
   if (source.kind === "york" && york) {
     // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
-    L.polygon(york.campus, { color: "#71717a", weight: 1.2, dashArray: "4 4", fill: false, interactive: false }).addTo(buildingLayer);
+    L.polygon(york.campus, { color: "#5f6368", weight: 1.5, dashArray: "6 5", fill: false, interactive: false }).addTo(buildingLayer);
     for (const fp of york.footprints) {
-      L.polygon(fp.ring, { color: "#a1a1aa", weight: 0.8, opacity: 0.7, fillColor: "#a1a1aa", fillOpacity: 0.08, interactive: false }).addTo(buildingLayer);
+      L.polygon(fp.ring, { color: "#5f6368", weight: 1, opacity: 0.8, fillColor: "#5f6368", fillOpacity: 0.06, interactive: false }).addTo(buildingLayer);
     }
   }
   markers.clear();
@@ -240,7 +285,7 @@ function drawMap() {
         radius: 6 + 10 * Math.sqrt(share), stroke: false, fillColor: bandColour(t, emsResponseS), fillOpacity: 0.25 + 0.4 * share,
       }).bindTooltip(tip).addTo(heatLayer);
     }
-    const dot = L.circleMarker(ll(cx, cy), { radius: editable ? 3.5 : 2, color: "#0e1014", weight: editable ? 1 : 0, fillColor: "#d4d4d8", fillOpacity: 0.85 })
+    const dot = L.circleMarker(ll(cx, cy), { radius: editable ? 3.5 : 2.5, color: "#ffffff", weight: editable ? 1 : 0, fillColor: "#5f6368", fillOpacity: 0.85 })
       .bindTooltip(`Demand point<br>${rate.toFixed(4)} arrests / yr`).addTo(demandLayer);
     if (editable) dot.on("click", (e) => { L.DomEvent.stop(e); openDemandEditor(i); });
   }
@@ -254,14 +299,14 @@ function drawMap() {
       const m = L.circleMarker(pos, {
         radius: MARKER_R, fillOpacity: 1, fillColor: open ? SITE[role] : SITE.locked,
         // Must-include sites get a dashed white outline so they read as a planner's pin.
-        color: forced ? "#f4f4f5" : "#0e1014", weight: forced ? 2.5 : 2, dashArray: forced ? "3 2" : undefined,
+        color: forced ? MUST : "#ffffff", weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
       }).bindTooltip(`<b>${name(j)}</b> · ${role === "new" ? (forced ? "Must-include" : "Recommended") : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
         .addTo(role === "existing" ? existingLayer : newLayer);
       if (role === "new") markers.set(j, m);
       wireSite(m, j, role === "new");
     } else {
       const m = L.circleMarker(pos, {
-        radius: editable ? 4.5 : 2.5, color: "#0e1014", weight: editable ? 1 : 0, fillColor: "#94a3b8", fillOpacity: open ? 0.8 : 0.3,
+        radius: editable ? 4.5 : 3, color: "#ffffff", weight: 1, fillColor: "#80868b", fillOpacity: open ? 0.9 : 0.35,
       }).bindTooltip(`${name(j)} · candidate<br>${cap(inst.siteKind[j])}`).addTo(candidateLayer);
       wireSite(m, j, false);
     }
@@ -505,7 +550,7 @@ function showInspector(content: HTMLElement, at: L.LatLngExpression) {
   inspector.hidden = false;
   editRing?.remove();
   editRing = L.circleMarker(at, {
-    renderer: ringRenderer, pane: "selection", radius: 12, color: "#f4f4f5", weight: 2, dashArray: "4 3",
+    renderer: ringRenderer, pane: "selection", radius: 12, color: "#202124", weight: 2, dashArray: "4 3",
     fill: false, interactive: false,
   }).addTo(map);
   // Bring the edited item into view if the panel or an edge hides it: shift the map so the item sits
@@ -886,12 +931,49 @@ function drawCharts() {
   const s = settings();
   const show = !!lead && s.source.kind === "lead";
   ui.charts.hidden = !show;
-  if (!show) return;
+  document.getElementById("chartsEmpty")!.hidden = show;
+  if (!show || sheet.hidden) return; // charts need a visible sheet to measure their width
   const atBase = s.emsResponseS === Number(lead!.params.ems_response_s);
   drawKCurve(ui.kcurve, lead!.results.kCurve, lead!.results.mcKCurve, s.budget,
     atBase ? null : state.solution?.lives ?? null);
   drawTornado(ui.tornado, lead!.results.oat);
 }
+
+// ---------- floating panel and insights sheet ----------
+const panelToggle = document.getElementById("panelToggle") as HTMLButtonElement;
+function setPanel(open: boolean) {
+  document.body.classList.toggle("panel-open", open);
+  panelToggle.setAttribute("aria-expanded", String(open));
+  panelToggle.setAttribute("aria-label", open ? "Collapse side panel" : "Expand side panel");
+  // Refit once the slide has finished so the data sits in the newly visible area.
+  setTimeout(() => lockToData(true), 260);
+}
+panelToggle.addEventListener("click", () => setPanel(!document.body.classList.contains("panel-open")));
+// Phones: the panel is a bottom sheet; tapping its header folds it down or up.
+document.querySelector(".panel-head")!.addEventListener("click", () => {
+  if (window.innerWidth <= 700) setPanel(!document.body.classList.contains("panel-open"));
+});
+if (window.innerWidth <= 700) document.body.classList.remove("panel-open");
+
+const sheet = document.getElementById("sheet")!;
+const insightsBtn = document.getElementById("insightsBtn") as HTMLButtonElement;
+function setSheet(open: boolean) {
+  sheet.hidden = !open;
+  insightsBtn.hidden = open;
+  insightsBtn.setAttribute("aria-expanded", String(open));
+  if (open) { drawCharts(); sheet.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(); }
+  else insightsBtn.focus();
+}
+insightsBtn.addEventListener("click", () => setSheet(true));
+document.getElementById("sheetClose")!.addEventListener("click", () => setSheet(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) setSheet(false); });
+sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
+  const tab = (e.target as HTMLElement).closest<HTMLButtonElement>("[role=tab]");
+  if (!tab) return;
+  sheet.querySelectorAll<HTMLButtonElement>("[role=tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
+  sheet.querySelectorAll<HTMLElement>("[role=tabpanel]").forEach((p) => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+  if (tab.dataset.tab === "charts") drawCharts();
+});
 
 // ---------- wiring ----------
 function buildPeriodButtons() {
