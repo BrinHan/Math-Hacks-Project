@@ -35,3 +35,12 @@ def test_band_benefits_drop_after_ems():
 def test_band_benefits_empty_when_ems_fastest():
     edges, b = band_benefits(Params(ems_response_s=30.0))
     assert edges.size == 0 and b.size == 0
+
+
+def test_travel_time_grows_with_distance():
+    inst = generate_instance(seed=0, grid_n=6, n_sites=10)
+    inst.site_floor_delay[:] = 0.0
+    tau = travel_time_matrix(inst, Params())
+    d = np.linalg.norm(inst.cell_xy[:, None] - inst.site_xy[None], axis=2)
+    order = np.argsort(d[0])
+    assert np.all(np.diff(tau[0, order]) >= -1e-9)
