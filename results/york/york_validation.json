@@ -1,0 +1,356 @@
+{
+ "n_published_aeds": 19,
+ "base": {
+  "scenario": "base case",
+  "published": 0.0996,
+  "published_at_door": 0.10768,
+  "best": 0.17288,
+  "gain_vs_published_pct": 73.56417,
+  "gain_vs_door_pct": 60.54996,
+  "best_buildings": [
+   "320 Assiniboine",
+   "360 Assiniboine",
+   "Accolade West",
+   "Atkinson Residence",
+   "Calumet Residence",
+   "Centre for Film and Theatre",
+   "Curtis Lecture Halls",
+   "First Student Centre",
+   "Founders College",
+   "Health, Nursing and Environmental Studies",
+   "Norman Bethune Residence",
+   "Physical Resources",
+   "Scott Library",
+   "Tatham Hall Residence",
+   "Victor Phillip Dahdaleh Building",
+   "West Office Building",
+   "York Lanes",
+   "outdoor cabinet"
+  ]
+ },
+ "gain_vs_published_range_pct": [
+  38,
+  129
+ ],
+ "gain_vs_door_range_pct": [
+  28,
+  81
+ ],
+ "scenarios": [
+  {
+   "scenario": "base case",
+   "published": 0.0996,
+   "published_at_door": 0.10768,
+   "best": 0.17288,
+   "gain_vs_published_pct": 73.56417,
+   "gain_vs_door_pct": 60.54996,
+   "best_buildings": [
+    "320 Assiniboine",
+    "360 Assiniboine",
+    "Accolade West",
+    "Atkinson Residence",
+    "Calumet Residence",
+    "Centre for Film and Theatre",
+    "Curtis Lecture Halls",
+    "First Student Centre",
+    "Founders College",
+    "Health, Nursing and Environmental Studies",
+    "Norman Bethune Residence",
+    "Physical Resources",
+    "Scott Library",
+    "Tatham Hall Residence",
+    "Victor Phillip Dahdaleh Building",
+    "West Office Building",
+    "York Lanes",
+    "outdoor cabinet"
+   ]
+  },
+  {
+   "scenario": "handbook beds only",
+   "published": 0.09916,
+   "published_at_door": 0.10724,
+   "best": 0.15799,
+   "gain_vs_published_pct": 59.32852,
+   "gain_vs_door_pct": 47.33413,
+   "best_buildings": [
+    "Accolade West",
+    "Atkinson Residence",
+    "Calumet Residence",
+    "Centre for Film and Theatre",
+    "Curtis Lecture Halls",
+    "First Student Centre",
+    "Founders College",
+    "Health, Nursing and Environmental Studies",
+    "Norman Bethune Residence",
+    "Physical Resources",
+    "Rob and Cheryl McEwen Graduate Study and Research Building",
+    "Scott Library",
+    "Tatham Hall Residence",
+    "Victor Phillip Dahdaleh Building",
+    "West Office Building",
+    "Winters Residence",
+    "York Lanes",
+    "outdoor cabinet"
+   ]
+  },
+  {
+   "scenario": "all housing incl. private",
+   "published": 0.10097,
+   "published_at_door": 0.111,
+   "best": 0.20043,
+   "gain_vs_published_pct": 98.5009,
+   "gain_vs_door_pct": 80.57406,
+   "best_buildings": [
+    "340 Assiniboine",
+    "Atkinson Residence",
+    "Building C2",
+    "Building C4",
+    "Calumet Residence",
+    "Curtis Lecture Halls",
+    "First Student Centre",
+    "Founders College",
+    "Health, Nursing and Environmental Studies",
+    "Norman Bethune Residence",
+    "Scott Library",
+    "Tatham Hall Residence",
+    "Victor Phillip Dahdaleh Building",
+    "West Office Building",
+    "York Lanes",
+    "outdoor cabinet",
+    "unnamed apartments 32519050"
+   ]
+  },
+  {
+   "scenario": "no residents",
+   "published": 0.09819,
+   "published_at_door": 0.10523,
+   "best": 0.13502,
+   "gain_vs_published_pct": 37.51421,
+   "gain_vs_door_pct": 28.30916,
+   "best_buildings": [
+    "Centre for Film and Theatre",
+    "Curtis Lecture Halls",
+    "First Student Centre",
+    "Goldfarb Centre for Fine Arts",
+    "Health, Nursing and Environmental Studies",
+    "Norman Bethune Residence",
+    "Physical Resources",
+    "Rob and Cheryl McEwen Graduate Study and Research Building",
+    "Scott Library",
+    "Sherman Health Science Research Centre",
+    "Sobeys Stadium",
+    "Tatham Hall Residence",
+    "Vari Hall",
+    "Victor Phillip Dahdaleh Building",
+    "West Office Building",
+    "Winters College",
+    "York Lanes",
+    "outdoor cabinet"
+   ]
+  },
+  {
+   "scenario": "no outdoor cabinets",
+   "published": 0.0996,
+   "published_at_door": 0.10768,
+   "best": 0.17219,
+   "gain_vs_published_pct": 72.87577,
+   "gain_vs_door_pct": 59.91318,
+   "best_buildings": [
+    "320 Assiniboine",
+    "360 Assiniboine",
+    "Atkinson Residence",
+    "Bennett Centre for Student Services",
+    "Calumet Residence",
+    "Centre for Film and Theatre",
+    "Curtis Lecture Halls",
+    "First Student Centre",
+    "Founders College",
+    "Health, Nursing and Environmental Studies",
+    "Norman Bethune Residence",
+    "Physical Resources",
+    "Ross Building",
+    "Scott Library",
+    "Tatham Hall Residence",
+    "Victor Phillip Dahdaleh Building",
+    "West Office Building",
+    "Winters Residence",
+    "York Lanes"
+   ]
+  },
+  {
+   "scenario": "York AEDs 20 s to reach",
+   "published": 0.11358,
+   "published_at_door": 0.10852,
+   "best": 0.17371,
+   "gain_vs_published_pct": 52.93899,
+   "gain_vs_door_pct": 60.07718,
+   "best_buildings": [
+    "320 Assiniboine",
+    "360 Assiniboine",
+    "Atkinson Residence",
+    "Bennett Centre for Student Services",
+    "Calumet Residence",
+    "Centre for Film and Theatre",
+    "Curtis Lecture Halls",
+    "First Student Centre",
+    "Founders College",
+    "Health, Nursing and Environmental Studies",
+    "Norman Bethune Residence",
+    "Physical Resources",
+    "Ross Building",
+    "Scott Library",
+    "Tatham Hall Residence",
+    "Victor Phillip Dahdaleh Building",
+    "West Office Building",
+    "York Lanes",
+    "outdoor cabinet"
+   ]
+  },
+  {
+   "scenario": "shortcut radius 200 m",
+   "published": 0.10314,
+   "published_at_door": 0.11172,
+   "best": 0.17444,
+   "gain_vs_published_pct": 69.13095,
+   "gain_vs_door_pct": 56.1366,
+   "best_buildings": [
+    "320 Assiniboine",
+    "360 Assiniboine",
+    "Atkinson Residence",
+    "Calumet Residence",
+    "Centre for Film and Theatre",
+    "Curtis Lecture Halls",
+    "First Student Centre",
+    "Founders College",
+    "Health, Nursing and Environmental Studies",
+    "Kinsmen",
+    "Norman Bethune Residence",
+    "Ross Building",
+    "Scott Library",
+    "Tatham Hall Residence",
+    "Victor Phillip Dahdaleh Building",
+    "West Office Building",
+    "York Lanes",
+    "outdoor cabinet"
+   ]
+  },
+  {
+   "scenario": "footpaths only, no shortcut",
+   "published": 0.06324,
+   "published_at_door": 0.0803,
+   "best": 0.14458,
+   "gain_vs_published_pct": 128.62896,
+   "gain_vs_door_pct": 80.03886,
+   "best_buildings": [
+    "340 Assiniboine",
+    "Atkinson Residence",
+    "Curtis Lecture Halls",
+    "Founders College",
+    "Norman Bethune Residence",
+    "Scott Library",
+    "Second Student Centre",
+    "Steacie Science & Engineering Library",
+    "Stong Residence",
+    "Tatham Hall Residence",
+    "Vari Hall",
+    "West Office Building",
+    "Winters Residence",
+    "York Lanes",
+    "outdoor cabinet"
+   ]
+  }
+ ],
+ "gap_walk_threshold_s": 180.0,
+ "coverage_gaps": [
+  {
+   "building": "Winters College",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 275,
+   "weekday_arrests_per_year": 0.0548
+  },
+  {
+   "building": "Founders College",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 223,
+   "weekday_arrests_per_year": 0.0356
+  },
+  {
+   "building": "McLaughlin College",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 395,
+   "weekday_arrests_per_year": 0.0274
+  },
+  {
+   "building": "Atkinson",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 183,
+   "weekday_arrests_per_year": 0.019
+  },
+  {
+   "building": "Sherman Health Science Research Centre",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 293,
+   "weekday_arrests_per_year": 0.0175
+  },
+  {
+   "building": "Unnamed university building (west)",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 390,
+   "weekday_arrests_per_year": 0.0124
+  },
+  {
+   "building": "The Pond Road Residence",
+   "kind": "residence",
+   "walk_to_nearest_published_aed_s": 197,
+   "weekday_arrests_per_year": 0.0124
+  },
+  {
+   "building": "Sobeys Stadium",
+   "kind": "athletic",
+   "walk_to_nearest_published_aed_s": 445,
+   "weekday_arrests_per_year": 0.0117
+  },
+  {
+   "building": "Neuroscience Laboratory and Research Building",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 251,
+   "weekday_arrests_per_year": 0.0113
+  },
+  {
+   "building": "Unnamed university building near Founders College",
+   "kind": "academic",
+   "walk_to_nearest_published_aed_s": 259,
+   "weekday_arrests_per_year": 0.0111
+  },
+  {
+   "building": "380 Assiniboine",
+   "kind": "residence",
+   "walk_to_nearest_published_aed_s": 379,
+   "weekday_arrests_per_year": 0.0094
+  },
+  {
+   "building": "340 Assiniboine",
+   "kind": "residence",
+   "walk_to_nearest_published_aed_s": 264,
+   "weekday_arrests_per_year": 0.0094
+  },
+  {
+   "building": "360 Assiniboine",
+   "kind": "residence",
+   "walk_to_nearest_published_aed_s": 312,
+   "weekday_arrests_per_year": 0.0093
+  },
+  {
+   "building": "320 Assiniboine",
+   "kind": "residence",
+   "walk_to_nearest_published_aed_s": 280,
+   "weekday_arrests_per_year": 0.0093
+  },
+  {
+   "building": "Vanier Residence",
+   "kind": "residence",
+   "walk_to_nearest_published_aed_s": 195,
+   "weekday_arrests_per_year": 0.0077
+  }
+ ]
+}

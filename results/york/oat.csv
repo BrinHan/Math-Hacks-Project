@@ -1,0 +1,9 @@
+param,low_value,high_value,lives_at_low,lives_at_high,base_lives
+public_fraction,0.12,0.25,0.116557,0.242826,0.174835
+ems_response_s,420.0,720.0,0.117928,0.243939,0.174835
+shockable_fraction,0.2,0.38,0.131951,0.250707,0.174835
+survival_k_per_min,0.03,0.12,0.080524,0.186113,0.174835
+incidence_per_100k_yr,40.0,70.0,0.127153,0.222517,0.174835
+survival_S0,0.5,0.8,0.124882,0.199811,0.174835
+dispatch_delay_s,30.0,120.0,0.19814,0.13359,0.174835
+walk_speed_mps,1.2,2.0,0.162989,0.202227,0.174835
