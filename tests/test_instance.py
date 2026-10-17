@@ -28,3 +28,10 @@ def test_validate_rejects_bad_period_hours():
     inst.period_hours = np.array([10.0, 6.0, 7.0])
     with pytest.raises(ValueError, match="24"):
         inst.validate()
+
+
+def test_validate_rejects_non_bool_open():
+    inst = generate_instance(seed=0, **SMALL)
+    inst.site_open = inst.site_open.astype(int)
+    with pytest.raises(ValueError, match="bool"):
+        inst.validate()
