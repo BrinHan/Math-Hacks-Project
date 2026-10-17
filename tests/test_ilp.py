@@ -56,3 +56,9 @@ def test_zero_budget():
 def test_empty_coverage(tiny_instance):
     cov = tiny_cov(tiny_instance, Params(ems_response_s=30.0))
     assert solve_ilp(cov, 3).lives == 0.0
+
+
+def test_ilp_respects_costs():
+    _, cov = build(seed=0, outdoor_cost=1.5, **SMALL)
+    sol = solve_ilp(cov, 3)
+    assert cov.site_cost[sol.x & ~cov.site_existing].sum() <= 3 + 1e-9
