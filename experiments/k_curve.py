@@ -4,6 +4,7 @@ Run: python experiments/k_curve.py --seed 0 --kmax 30 --out results
 """
 import argparse
 import csv
+import json
 import math
 import sys
 from pathlib import Path
@@ -28,12 +29,13 @@ HEADER = ["K", "ilp_lives", "greedy_lives", "swap_lives", "pop_lives", "existing
 def main(seed: int = 0, kmax: int = 30, out="results", verbose: bool = True, **gen_kwargs) -> Path:
     inst, cov = build(seed=seed, **gen_kwargs)
     existing = evaluate(cov, cov.site_existing)
-    rows = []
+    rows, placements = [], {}
     for K in range(kmax + 1):
         ilp = solve_ilp(cov, K)
         greedy = solve_greedy(cov, K)
         swap = solve_swap(cov, K, init=greedy)
         pop = solve_population(inst, cov, K).lives if solve_population else math.nan
+        placements[K] = [int(j) for j in ilp.new_sites(cov.site_existing)]
         gap = 0.0 if ilp.lives == 0 else 100 * (ilp.lives - greedy.lives) / ilp.lives
         rows.append([K, ilp.lives, greedy.lives, swap.lives, pop, existing, gap, ilp.runtime_s])
         if verbose:
@@ -46,7 +48,8 @@ def main(seed: int = 0, kmax: int = 30, out="results", verbose: bool = True, **g
         w = csv.writer(f)
         w.writerow(HEADER)
         w.writerows([[r[0]] + [round(v, 6) for v in r[1:]] for r in rows])
-    print(f"wrote {path}")
+    (path.parent / "placements.json").write_text(json.dumps(placements, indent=1))
+    print(f"wrote {path} and placements.json")
     return path
 
 
