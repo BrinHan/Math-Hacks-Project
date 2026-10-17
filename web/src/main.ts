@@ -289,7 +289,7 @@ legend.onAdd = () => {
     toggle.setAttribute("aria-expanded", String(!c));
   };
   toggle.addEventListener("click", () => setCollapsed(!div.classList.contains("collapsed")));
-  setCollapsed(window.matchMedia("(max-width: 700px), (max-height: 860px)").matches); // starts folded unless there is room
+  setCollapsed(true); // starts folded; one tap opens it
   L.DomEvent.disableClickPropagation(div);
   L.DomEvent.disableScrollPropagation(div);
   return div;
@@ -1262,7 +1262,8 @@ sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
 const pop = document.getElementById("pop")!;
 const fieldStore = document.getElementById("fieldStore")!;
 const POPS: Record<string, string[]> = {
-  all: ["budgetField", "emsField", "periodField"],
+  // "All" holds every setting, so the bar can drop the less-used Show and Dataset pills.
+  all: ["budgetField", "emsField", "periodField", "showField", "dataField"],
   budget: ["budgetField"], ems: ["emsField"], time: ["periodField"], show: ["showField"], data: ["dataField"],
 };
 let popFor: HTMLButtonElement | null = null;
