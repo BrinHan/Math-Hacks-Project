@@ -58,3 +58,15 @@ class Instance:
         for name in ("site_open", "site_existing"):
             if getattr(self, name).dtype != bool:
                 raise ValueError(f"{name} must be a bool array")
+
+
+M_PER_DEG_LAT = 111_320.0
+
+
+def metres_to_latlon(xy: np.ndarray, origin_latlon: tuple[float, float]) -> np.ndarray:
+    """Local (x east, y north) metres -> (N, 2) array of (lat, lon) degrees."""
+    lat0, lon0 = origin_latlon
+    xy = np.asarray(xy, dtype=float)
+    lat = lat0 + xy[:, 1] / M_PER_DEG_LAT
+    lon = lon0 + xy[:, 0] / (M_PER_DEG_LAT * np.cos(np.radians(lat0)))
+    return np.column_stack([lat, lon])
