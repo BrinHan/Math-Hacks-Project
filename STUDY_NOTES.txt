@@ -1,0 +1,595 @@
+STUDY NOTES: AED PLACEMENT OPTIMIZER (Math-Hacks-Project)
+===========================================================
+Everything covered in our session, plus what was missed and what was hard to understand.
+Part 1 is the list of things that were confusing, with the clear explanation that finally worked.
+Read Part 1 first.
+
+Contents
+  PART 1  Things that were hard to understand (and the explanation that fixed each)
+  PART 2  The big picture
+  PART 3  Every variable
+  PART 4  The 8 formulas, each with its variables underneath
+  PART 5  How the math is implemented in the code
+  PART 6  Branching (how the solver finds x)
+  PART 7  Things we did NOT cover / still open
+  PART 8  Setup facts (where the repo is, how to run it)
+
+
+=======================================================================
+PART 1: THINGS THAT WERE HARD TO UNDERSTAND
+=======================================================================
+
+1.1  "What is rate_ip?"
+-----------------------
+Confusion: what the symbol meant.
+Answer: rate_ip is the EXPECTED NUMBER OF CARDIAC ARRESTS PER YEAR in cell i during
+time period p.
+  - i = one square cell of the campus grid.
+  - p = one of 5 periods (weekday morning, afternoon, evening, night, weekend).
+  - It is an average (an expected value), like 0.003 arrests per year. It does not mean
+    arrests actually happen at that rate.
+  - Formula: rate_ip = people_ip x (incidence/100,000) x (public_fraction/away_time_share)
+             x (hours_p/24)
+  - It is used to build each row's weight: weight = rate_ip x (benefit of the AED).
+  - Busy classroom building in the morning = high rate. Empty field at night = near zero.
+
+1.2  "Why is the decay rate exponential?" (formula 3, survival)
+---------------------------------------------------------------
+Confusion: why that curve shape.
+Answer: it is an ASSUMPTION the authors made. aed/params.py says so:
+"ASSUMPTION: exponential decay; linear offered as a sensitivity check."
+Reasons it is reasonable:
+  - Each minute of delay costs a fixed PERCENTAGE of what is left (sources say 7-10%/min).
+  - It never goes below zero (a straight line eventually hits zero and needs a cutoff).
+  - It matches odds-ratio studies (Waalewijn: odds drop by 0.85-0.89 per minute).
+  - It is simple: one parameter k.
+The authors tested a linear curve instead (experiments/survival_form.py):
+  - Total lives saved roughly doubles with the linear curve (the ambulance baseline drops
+    from 0.28 to 0.07, so every AED looks more valuable).
+  - BUT the chosen sites barely change: 8 of 10 sites shared at K=10, and using the wrong
+    curve's plan loses only about 0.12% to 0.21% of the achievable lives.
+Takeaway: the curve's shape sets HOW MANY lives are saved, not WHERE the AEDs go.
+
+1.3  "So it just divides the old value by a constant?"
+------------------------------------------------------
+Confusion: understanding exponential decay.
+Answer: Yes, with one detail. Each minute the old value is MULTIPLIED by a constant less
+than 1 (same as dividing by a constant greater than 1).
+With k = 0.10 per minute, each minute multiplies survival by e^(-0.1) = about 0.905.
+  Minutes   Survival (S0 = 0.7)
+     0        0.700
+     1        0.633
+     2        0.573
+     3        0.519
+     4        0.469
+     9        0.285
+Each row is the one above times 0.905. The loss per minute shrinks as the number gets
+smaller (the curve flattens). A LINEAR curve would subtract the same amount every minute
+(0.7 x 0.1 = 0.07 per minute).
+
+1.4  "What is S0?"
+-----------------
+Answer: the survival probability if the patient is shocked IMMEDIATELY (t = 0).
+S(0) = S0 x e^0 = S0. Default is 0.7 (70%). It comes from casino studies: Valenzuela
+2000 (74% when shocked within 3 min) and Larsen 1993 (67% baseline). The tests vary S0
+from 0.5 to 0.8. S0 scales all survival numbers the same way, so it changes how many lives
+are saved but not which sites are best.
+
+1.5  "Is formula 6 an ILP?"
+---------------------------
+Answer: Yes. ILP = integer linear program.
+  - LINEAR: the objective and all constraints are weighted sums. No squares, no variable
+    times another variable.
+  - INTEGER: the x_j variables must be whole numbers (0 or 1). You can't build half an AED.
+  - PROGRAM: here means "optimization problem", not computer code.
+Technical detail: the code only marks x as integer; z can be a fraction (it comes out 0 or 1
+anyway once x is fixed). That is technically a MILP (mixed-integer LP). That is why the code
+calls scipy.optimize.milp. People still call it an ILP.
+
+1.6  Formula 7 (scoring a plan). This took the MOST time. Several confusions:
+------------------------------------------------------------------------------
+  (a) "Explain it some more"
+  (b) "What happens if it's less than 1?"
+  (c) The tiny matrix example was not clear until it was told as a story.
+  (d) Final understanding: "this is basically adding all the weight ONLY for the spots
+      that are covered."
+
+The formula:   lives(x) = sum of w_r over all rows r where (sum over j of A_rj x_j) >= 1
+
+PLAIN-LANGUAGE VERSION (the one that worked):
+Imagine a campus with 3 places where someone could collapse and 3 spots where an AED could go.
+  - Spot 1 is close to place 1.
+  - Spot 2 is close to place 1 AND place 2.
+  - Spot 3 is close to place 3 only.
+Each place has "lives at stake per year": place 1 = 0.010, place 2 = 0.004, place 3 = 0.006.
+Question: if I build at spots 1 and 3, how many lives per year do I save?
+
+  Table:        Place   Close AED spots    Lives at stake
+                r1      spot 1, spot 2     0.010
+                r2      spot 2             0.004
+                r3      spot 3             0.006
+
+  Matrix A is the SAME table as 1s and 0s. Each ROW is a place, each COLUMN is an AED spot.
+  A 1 means "this spot is close enough to this place". A 0 means it is not.
+                  spot1 spot2 spot3
+         r1 [       1     1     0 ]
+         r2 [       0     1     0 ]
+         r3 [       0     0     1 ]
+
+  x is your plan: 1 = "build an AED here", 0 = "don't".
+  x = [1, 0, 1] means build at spot 1, skip spot 2, build at spot 3.
+
+  STEP 1: For each place, how many BUILT AEDs are close to it? (multiply matching entries
+          of the row of A and x, then add)
+            r1: 1x1 + 1x0 + 0x1 = 1   (spot 1 is built and close)
+            r2: 0x1 + 1x0 + 0x1 = 0   (only spot 2 is close, and it was not built)
+            r3: 0x1 + 0x0 + 1x1 = 1   (spot 3 is built and close)
+  STEP 2: A place is COVERED if the count is at least 1.
+            r1 covered, r2 NOT covered, r3 covered.
+  STEP 3: Add the lives-at-stake of covered places only: 0.010 + 0.006 = 0.016 lives/year.
+          r2's 0.004 is lives still lost (nobody could fetch an AED in time).
+
+  A different plan: x = [0, 1, 1] (spots 2 and 3) covers all three places:
+  0.010 + 0.004 + 0.006 = 0.020. That is better. The solver's job is to find the best plan
+  like that, but for about 190 spots instead of 3.
+
+WHAT IF THE COUNT IS LESS THAN 1?
+  A and x only contain 0s and 1s, so the count is a whole number. "Less than 1" can only
+  mean exactly 0. That row is NOT covered and adds nothing to lives. In real terms: nobody
+  who collapses there can have an AED fetched within that band's time limit, so the
+  patient waits for the ambulance. In the code: (cov.A @ x) >= 1 gives False for that row,
+  and cov.weights[covered] skips it.
+
+WHY "AT LEAST 1" AND NOT "THE COUNT"?
+  If both spot 1 and spot 2 were built, r1's count would be 2, but its weight is still
+  counted ONCE. A second nearby AED does not save the same person twice.
+
+VOCABULARY WARNING (a mix-up that happened):
+  In the formula, r is a ROW (one case: a cell + a period + a time band). It is NOT a spot.
+  The AED spots are the SITES j. So the sentence is "add the weights of the ROWS that are
+  covered", where covered = at least one chosen site reaches that row in time.
+
+1.7  "Explain every variable BEFORE the formulas"
+-----------------------------------------------
+The variable list is in Part 3. After seeing it, I then asked for the explanation directly
+UNDER each formula, so Part 4 does that.
+
+1.8  "How do you use this map?" (a misunderstanding)
+----------------------------------------------------
+I first answered about the web app's map. What was actually meant: "how do you USE this
+math". Answer (full workflow in Part 5):
+  1. Build the weights w_r and the reach table A_rj from the campus data (formulas 1-5).
+  2. Choose a budget K.
+  3. Solve formula 6: the solver finds the 0/1 vector x.
+  4. Sites where x_j = 1 and that are not already existing = recommended new AEDs.
+  5. Score with formula 7.
+  6. Compare alternatives (York's current 19, greedy, a hand-picked plan) with formula 7.
+Worked example (3 sites, cost 1 each, nothing built yet, weights as in 1.6):
+  K=1: site 1 -> 0.010, site 2 -> 0.014, site 3 -> 0.006. Best = site 2 (0.014).
+  K=2: sites 2+3 -> 0.020 (best), sites 1+3 -> 0.016, sites 1+2 -> 0.014 (site 1 adds
+       nothing because r1 is already covered by site 2).
+
+1.9  "How is x calculated?" and "If x isn't calculated, how does it become a fraction?"
+------------------------------------------------------------------------------------
+MY EARLIER WORDING WAS MISLEADING. I said x "isn't calculated". Correct statement:
+no FORMULA gives x directly. x IS computed, by a solver that SEARCHES for the best 0/1 plan.
+Where fractions come from: the first step of branch and bound is the RELAXATION: drop the
+rule that x_j must be 0 or 1 and let x_j be any number from 0 to 1. The solver then solves
+that easier problem (a linear program), and its best answer can land on fractions because of
+the budget.
+Example: two sites each cost 2.0, budget K = 3. Row r1 is reached only by site A, row r2
+only by site B, each row weight 1.0.
+  - Real problem (0/1): you can afford ONE site -> best = 1.0 lives.
+  - Relaxation: 2*xA + 2*xB <= 3 -> best is xA = 0.75, xB = 0.75, score 1.5. That 1.5 is the
+    CEILING. No real plan can beat it, but it is not reachable here.
+The fractions only appear inside the relaxed problems used to compute ceilings. The final
+answer always has x_j equal to 0 or 1.
+
+1.10  Branching (full explanation in Part 6)
+--------------------------------------------
+Your summary: "it changes the x's and tries to find the best optimal spot, and it uses
+fractions to find the best or its ceiling." That is correct, with two fixes:
+  - The solver does not nudge x's up and down. It makes EXACT choices ("build B" / "don't
+    build B") and re-solves each.
+  - The ceiling is not always reachable (example: ceiling 1.5, best real plan 1.0). The gap
+    between the best real plan and the ceiling is why it keeps searching until they meet
+    within 0.01%.
+
+
+=======================================================================
+PART 2: THE BIG PICTURE
+=======================================================================
+
+The project: a campus has money for a limited number of defibrillators (AEDs). Where should
+K of them go to save the most lives per year? Target campus: York University Keele (86
+buildings, York's 19 existing AEDs, walking paths).
+
+Pipeline:
+  campus data -> travel times -> coverage rows -> solver picks sites -> score -> stress-test
+
+Files (in aed/):
+  data/york.py, data/synthetic.py   campus data (real York / generated test campus)
+  travel.py                         travel-time matrix tau
+  survival.py                       survival curve and band benefits
+  coverage.py                       builds the rows (weights + reach table A)
+  solvers/ilp.py                    exact solver (HiGHS via scipy.optimize.milp)
+  solvers/greedy.py                 fast heuristic, guaranteed >= 63% of optimal
+  solvers/swap.py                   improves greedy by swapping sites
+  solvers/common.py                 evaluate(): formula 7
+  uncertainty.py                    Monte Carlo + one-at-a-time sensitivity
+  pipeline.py                       build(): ties it together
+Other folders: experiments/ (runs everything), web/ (browser app), tests/ (134 tests).
+
+
+=======================================================================
+PART 3: EVERY VARIABLE
+=======================================================================
+
+INDICES (the "which one" labels)
+  i   a CELL. The campus is cut into a grid of small squares. I = number of cells.
+  j   a candidate AED SITE (spot inside a building or outdoor cabinet). J = number of
+      sites (193 for York).
+  p   a TIME PERIOD. Five: weekday morning, afternoon, evening, night, weekend. P = 5.
+  k   a TIME BAND: cutoffs in 1-minute steps ("within 1 min", "within 2 min", ...).
+  r   a ROW. One row = one case = one cell + one period + one band.
+
+PARAMETERS (inputs, aed/params.py)
+  incidence_per_100k_yr   lambda = 55    arrests per 100,000 people per year
+  public_fraction         f_pub  = 0.18  share of all arrests that happen in public
+  away_time_share         a      = 0.313 share of a person's time spent away from home
+  walk_speed_mps          v      = 1.4   walking speed, metres per second
+  detour_factor           detour = 1.3   real routes are this much longer than straight lines
+  dispatch_delay_s               = 60    seconds from collapse until the bystander sets off
+  ems_response_s          T_ems  = 540   seconds until the ambulance arrives (9 min)
+  survival_S0             S0     = 0.7   survival chance if shocked instantly
+  survival_k_per_min      k      = 0.10  survival decay rate per minute
+  shockable_fraction      f      = 0.265 share of arrests with a rhythm a shock can fix
+  band_edges_s            T_k    = 60,120,...,600  band cutoffs in seconds
+  max_tau_s                      = 600   an AED slower than this is "unreachable"
+
+CAMPUS DATA (aed/instance.py)
+  cell_xy            (x, y) position of each cell centre, metres
+  cell_rate          rate_ip: expected arrests per year in cell i during period p
+  site_xy            (x, y) position of each site, metres
+  site_cost          c_j: 1.0 indoor, 1.5 outdoor cabinet (an ASSUMPTION, not a real price)
+  site_floor_delay   floor_delay_j: seconds from building entrance to the AED
+  site_open          open_jp: True if site j is accessible in period p
+  site_existing      True if site j already has an AED
+  period_hours       hours_p: hours per day each period covers (sums to 24)
+  walk_dist_m        d_ij: walking distance in metres from cell i to site j
+  people_ip          how many people are in cell i during period p
+
+COMPUTED QUANTITIES
+  tau_ij   seconds from collapse in cell i until an AED from site j reaches the patient
+  S(t)     survival probability if shocked t minutes after collapse
+  b_k      benefit of an AED arriving within band k (extra survival per arrest vs waiting
+           for the ambulance)
+  w_r      lives per year at stake in row r (the "weights")
+  A        0/1 matrix. A[r, j] = 1 means site j reaches row r in time (and is open)
+
+DECISIONS AND RESULTS
+  x_j      1 if you put an AED at site j, 0 if not (the solver chooses these)
+  z_r      1 if row r is covered, 0 if not
+  K        the budget: max total cost of the new AEDs
+  lives    expected lives saved per year (the result)
+
+
+=======================================================================
+PART 4: THE 8 FORMULAS, EACH WITH ITS VARIABLES UNDERNEATH
+=======================================================================
+
+FORMULA 1: DEMAND (arrests per year in a cell and period)
+
+    rate_ip = people_ip x (lambda / 100,000) x (f_pub / a) x (hours_p / 24)
+
+  rate_ip       expected arrests per year in cell i during period p
+  people_ip     number of people in cell i during period p
+  lambda        incidence, 55 per 100,000 people per year. Dividing by 100,000 gives the
+                chance for ONE person
+  f_pub         public fraction, 0.18
+  a             away-time share, 0.313
+  f_pub / a     about 0.57. Correction: a person in public has about 0.57x the average
+                arrest hazard (younger, healthier people are the ones out)
+  hours_p       hours per day period p covers
+  hours_p / 24  fraction of the day the period lasts (longer period = more arrests)
+  Where f_pub/a comes from: let h = arrest rate per person-year spent in public. Counting
+  public arrests two ways: h x a x N = f_pub x lambda x N, so h = lambda x f_pub / a.
+
+FORMULA 2: TRAVEL TIME (seconds until an AED reaches the patient)
+
+    tau_ij = dispatch_delay + 2 x detour x d_ij / v + floor_delay_j
+
+  tau_ij          seconds from collapse in cell i until an AED from site j is at the patient
+  dispatch_delay  60 s: time to recognize the arrest and set off
+  d_ij            walking distance in metres from cell i to site j
+  detour          1.3, converts straight-line to real walking distance (1.0 for York because
+                  d_ij already follows the footpaths)
+  v               walking speed, 1.4 m/s
+  the 2           bystander walks TO the AED and BACK to the patient
+  floor_delay_j   seconds to get from the building entrance to the AED inside
+  Example: a 100 m route -> 60 + 2x100/1.4 = about 203 s, plus the in-building delay.
+
+FORMULA 3: SURVIVAL (chance of living if shocked at time t)
+
+    S(t) = S0 x e^(-k x t)
+
+  S(t)   survival probability if shocked t minutes after collapse
+  t      delay in minutes
+  S0     0.7, survival if shocked instantly (t = 0)
+  k      0.10 per minute, the decay rate
+  e^(-k t)  starts at 1 and shrinks; each minute it is multiplied by about 0.905
+
+FORMULA 4: BENEFIT OF A BAND (extra survival from a fast AED)
+
+    b_k = f x max(0, S(T_k) - S(T_ems))
+
+  b_k      extra survival chance, per arrest, if an AED arrives within band k, measured
+           against waiting for the ambulance
+  T_k      the band's time limit (60 s, 120 s, ... 600 s)
+  T_ems    ambulance response time, 540 s
+  S(T_k) - S(T_ems)  survival if shocked at the band limit minus survival if shocked at
+           ambulance arrival
+  max(0, ...)  an AED slower than the ambulance is worth 0, not negative
+  f        shockable fraction 0.265: only arrests with a VF/pVT rhythm respond to a shock
+  Worked values (base parameters):
+      1 min: 0.0924    2 min: 0.0764    3 min: 0.0620    4 min: 0.0489    8 min: 0.0079
+  The 9-min and 10-min bands are worth 0 and are dropped.
+  Example: 2 min -> 0.265 x (0.573 - 0.285) = about 0.076.
+
+FORMULA 5: ROW WEIGHT (lives per year at stake in one case)
+
+    w_r = rate_ip x (b_k - b_(k+1))
+
+  w_r            lives per year at stake in row r (r = one cell i, one period p, one band k)
+  rate_ip        arrests per year from formula 1
+  b_k            benefit of band k from formula 4
+  b_(k+1)        benefit of the next, slower band (taken as 0 for the last band)
+  b_k - b_(k+1)  the extra benefit this band adds on top of the slower one. Bands are
+                 nested (a cell reached in 2 min also counts as reached in 3), so using
+                 the DIFFERENCE avoids double-counting.
+  Telescoping: summing the weights of every covered row for one cell+period cancels in
+  pairs and leaves exactly rate_ip x b(fastest band reached).
+  Example: a cell with rate 0.01/yr whose closest open AED has tau = 150 s. It is not within
+  the 2-min edge (120 s) but is within 3 min (180 s) and every slower band. Bands 3-8 are
+  covered; their weights add to 0.01 x b_3 = 0.01 x 0.0620 = 0.00062 lives/year.
+
+FORMULA 6: THE OPTIMIZATION (choose which sites get an AED)
+
+    maximize    sum over r of  w_r x z_r
+    subject to  z_r <= sum over j of A_rj x x_j      for every row r
+                sum over j of c_j x x_j <= K
+                x_j = 1                              for existing AEDs
+
+  x_j            decision: 1 if an AED goes at site j, 0 if not (solver chooses)
+  z_r            1 if row r is covered, 0 if not
+  w_r            row weight from formula 5
+  sum w_r z_r   total lives per year saved, summed over covered rows (what is maximized)
+  A_rj           1 if site j reaches row r in time (tau_ij <= T_k) and is open in that
+                 period, otherwise 0
+  z_r <= sum A_rj x_j   a row can only be covered if at least one chosen site reaches it
+  c_j            cost of site j (1.0 indoor, 1.5 outdoor: an assumption)
+  K              budget, the max total cost of the NEW AEDs
+  x_j = 1 for existing AEDs   York's 19 current AEDs are forced in, at zero cost
+  This is an ILP / MILP (see 1.5). Solved by HiGHS (branch and bound, Part 6).
+
+FORMULA 7: SCORING ANY PLAN
+
+    lives(x) = sum of w_r over all rows r where (sum over j of A_rj x x_j) >= 1
+
+  lives(x)             expected lives saved per year by plan x
+  x                    a full plan, one 0 or 1 per site
+  sum_j A_rj x_j       counts how many chosen sites reach row r
+  >= 1                 at least one chosen site reaches it, so the row is covered
+  w_r                  weight of each covered row, which are added together
+  In code: cov.weights[(cov.A @ x) >= 1].sum()
+  (See Part 1.6 for the full story-style walkthrough.)
+
+FORMULA 8: MONTE CARLO (how much the result can vary)
+
+    mean = average of lives over n scenarios
+    90% interval = [5th percentile, 95th percentile] of lives
+
+  A scenario: one random draw of the uncertain inputs. Each parameter is drawn uniformly
+  between its low and high value; demand is scaled by a random factor 0.7-1.3; about 10%
+  of sites have one opening period flipped.
+  lives: formula 7 applied to the SAME fixed plan in each scenario
+  n: number of scenarios (200-500 in the code)
+  5th percentile: the value 5% of scenarios fall below. 95th: 95% fall below. The 90%
+  interval is the range between them.
+  It also records how often each site is chosen when greedy RE-optimizes in each scenario
+  (a high share = a robust site).
+  One-at-a-time sensitivity (tornado chart): move each parameter to its low and high value
+  while holding the others at base, re-solve, and rank parameters by how much lives change.
+  Notes: incidence, public fraction, and shockable fraction only rescale the objective
+  (they change HOW MANY lives are saved, never WHICH sites are chosen). Lives saved rise
+  with k over its range because faster decay hurts the ambulance baseline more than a
+  nearby AED.
+
+
+=======================================================================
+PART 5: HOW THE MATH IS IMPLEMENTED IN THE CODE
+=======================================================================
+
+Formula 3 and 4 -> aed/survival.py
+    def survival(t_s, params):
+        t_min = np.asarray(t_s, dtype=float) / 60.0
+        return params.survival_S0 * np.exp(-params.survival_k_per_min * t_min)
+
+    def band_benefits(params):
+        edges = np.asarray(params.band_edges_s, dtype=float)   # 60, 120, ... 600
+        gain = survival(edges, params) - survival(params.ems_response_s, params)
+        b = params.shockable_fraction * np.maximum(0.0, gain)
+        keep = b > 0                       # bands slower than the ambulance drop out
+        return edges[keep], b[keep]
+
+Formula 2 -> aed/travel.py
+    walk = 2.0 * detour * d / params.walk_speed_mps     # d is an (I, J) matrix
+    return params.dispatch_delay_s + walk + inst.site_floor_delay[None, :]
+  NumPy broadcasting builds the whole cell x site table at once. The result "tau" has one
+  number per cell-and-site pair.
+
+Formula 1 -> aed/data/york.py line 252
+    rate = people * params.incidence_per_100k_yr / 1e5 * hazard * PERIOD_HOURS / 24.0
+  hazard = public_fraction / away_time_share. PERIOD_HOURS = [25, 25, 30, 56, 32] / 7
+  (hours per WEEK in each period divided by 7 = hours per day).
+
+Formula 5 and the reach table A -> aed/coverage.py
+    delta_b = b - np.append(b[1:], 0.0)            # b_k - b_(k+1)
+    within = tau <= min(edge, params.max_tau_s)    # which cell/site pairs are fast enough
+    mask = within & inst.site_open[None, :, q]     # ...and the site is open this period
+    w = inst.cell_rate[:, q] * db                  # lives/year per cell
+    cells = np.flatnonzero((w > 0) & mask.any(axis=1))
+    ri, cj = np.nonzero(mask[cells])               # (row, site) pairs that reach
+  All pairs go into a SPARSE matrix A (mostly zeros, so only the 1s are stored). York has
+  14,875 rows and 193 sites.
+
+Formula 7 -> aed/solvers/common.py
+    def _covered(cov, x):
+        return (cov.A @ np.asarray(x, dtype=float)) >= 1
+    def evaluate(cov, x):
+        return float(cov.weights[_covered(cov, x)].sum())
+  evaluate_by_period does the same and splits the total by period with np.bincount.
+
+Formula 6 -> aed/solvers/ilp.py. SciPy's milp MINIMIZES, so the objective is negated.
+Variables are stacked as [x (J), z (R)]:
+    c = np.concatenate([np.zeros(J), -cov.weights])               # maximize weights . z
+    cover = LinearConstraint(sp.hstack([-cov.A, sp.identity(R)]), -np.inf, 0.0)  # z - A x <= 0
+    budget_row = LinearConstraint(np.concatenate([cost, np.zeros(R)])[None, :], -np.inf, budget)
+    lb = np.concatenate([existing.astype(float), np.zeros(R)])    # existing AEDs forced to 1
+    integrality = np.concatenate([np.ones(J), np.zeros(R)])       # only x must be whole
+  After solving: x = res.x[:J] > 0.5  (takes the first J entries and turns them into
+  True/False; the 0.5 threshold only guards against rounding like 0.9999999).
+  If the solver times out with no answer, the code falls back to greedy. Stop rule:
+  mip_rel_gap = 1e-4 (0.01%), time limit 60 s.
+
+GREEDY -> aed/solvers/greedy.py
+  - Gain of a site = summed weight of rows it reaches that are not covered yet.
+  - Repeatedly add the site with the best (gain / cost) until the budget is spent.
+  - "Lazy" version: keep a priority queue, recompute only the top site's true ratio, and
+    re-queue it if it dropped. Safe because gains can only shrink as more rows get covered
+    (submodularity).
+  - Guarantee: at least 1 - 1/e = about 63% of optimal (Nemhauser, Wolsey, Fisher 1978) for
+    unit costs. The objective is "monotone submodular": adding a site never hurts, and a
+    site helps no more when added to a bigger set than to a smaller one.
+
+SWAP (Teitz-Bart) -> aed/solvers/swap.py
+  - Start from greedy. Keep count[r] = number of chosen sites reaching each row.
+  - Adding site j gains the weight of rows with count == 0.
+  - Removing site o loses the weight of rows where count == 1 and j doesn't also cover.
+  - Accept a swap if gain - loss > 0. Repeat until a full pass changes nothing.
+
+MONTE CARLO -> aed/uncertainty.py
+  sample_scenario draws each parameter with rng.uniform(lo, hi) using RANGES in params.py,
+  rescales demand, flips ~10% of sites' opening periods (~s.site_open[j, q]), rebuilds tau
+  and A, and calls evaluate(cov, x_base) to score the fixed base plan.
+
+USING THE WHOLE THING (Python; not run in our session, written from the function signatures):
+    from aed.pipeline import build
+    from aed.solvers.ilp import solve_ilp
+    from aed.solvers.common import evaluate
+    inst, cov = build(campus="york")         # formulas 1-5
+    sol = solve_ilp(cov, budget=10)          # formula 6
+    print(sol.lives)                         # formula 7, computed inside the solver
+    print(sol.new_sites(cov.site_existing))  # which new sites were chosen
+    print(evaluate(cov, cov.site_existing))  # formula 7 on York's current AEDs alone
+
+
+=======================================================================
+PART 6: BRANCHING (BRANCH AND BOUND)
+=======================================================================
+
+How HiGHS solves the ILP exactly without trying every combination of sites.
+
+STEP 1  RELAX. Drop the rule that x_j must be 0 or 1; allow any number from 0 to 1. This is
+        a linear program (LP), which is fast. Its score is a CEILING: no real plan within
+        budget can beat it (the LP has strictly more freedom). It is computed by actually
+        SOLVING the LP, not by setting everything to 1.
+STEP 2  BRANCH. If every x_j is exactly 0 or 1, it is a real plan. Otherwise, take a
+        fractional one (say x_B = 0.6) and split into two groups:
+            Group A: every plan with x_B = 0 (site B not built)
+            Group B: every plan with x_B = 1 (site B built)
+        Every plan falls in exactly one group. NOTHING is rounded. Each group is re-solved
+        with that site fixed and the rest of the map still free.
+STEP 3  BOUND AND PRUNE. Each group gets its own ceiling. Track the BEST REAL PLAN so far
+        (the "record"). If a group's ceiling is below the record, even the best case there
+        loses, so the whole group is pruned without looking at its plans.
+        Repeat until every group is pruned or reduced to a real plan. Answer = best real plan.
+
+Illustration (made-up numbers):
+    Start: ceiling 0.50 (x_B = 0.6)
+    +- x_B = 0: ceiling 0.42
+    +- x_B = 1: ceiling 0.49
+        +- x_E = 0: real plan found, score 0.45   <- new record
+        +- x_E = 1: ceiling 0.44   <- below the 0.45 record, pruned
+    The 0.42 group is also pruned once the record is 0.45.
+
+OPTIMALITY GAP. When the search stops, the solver reports the gap between the best real
+plan and the highest remaining ceiling. The code stops at 0.01%.
+
+Details that confuse people:
+  - A branch is a GROUP of plans, not one plan ("x_B = 1" = every plan that builds B).
+  - Only one site is split per step; the rest stay free in each child.
+  - Branches are not compared with each other; each is checked against the record.
+  - The record only improves (starts low, rises).
+  - A child can't lose the record (the record is an already-found real plan).
+  - One LP solve covers all ~190 site values at once; only the fractional ones get split.
+  - For York most budgets solve in about 1 s; the slowest were K=1 (18 s) and K=2 (9 s).
+  - Tests: the ILP is checked against brute-force enumeration on an 8-site toy campus.
+  - Analogy: speedcubing world record. The record is the best real plan; an attempt in
+    progress is a branch; its ceiling is the best time it could still finish with; if even
+    that is slower than the record, stop early.
+
+
+=======================================================================
+PART 7: THINGS WE DID NOT COVER / STILL OPEN
+=======================================================================
+
+NOT YET READ (so not explained):
+  - aed/geo.py and aed/walknet.py: how the shortest-path walking distance d_ij is computed
+    on the campus footpath network.
+  - How york.py computes people_ip for each building and period. It comes from assumed
+    occupancy schedules (classroom seats, floor area, residence beds); see
+    docs/assumptions.md items 14-22. York's real timetable needs a login, so the schedule
+    is an assumption.
+  - Experiments in detail (experiments/*.py), the web app source in web/, and the
+    population-only baseline.
+  - The synthetic campus generator internals.
+
+NOT RUN YET:
+  - The web app (cd web; npm install; npm run dev). Instructions come from the README only.
+  - The Python snippet in Part 5. Written from signatures I read, not executed.
+
+THINGS TO KNOW / WATCH OUT FOR:
+  - HOW_IT_WORKS.md has a STALE "Where the project stands" section. It says the Streamlit
+    app and the York loader do not exist; the repo now has app.py, aed/data/york.py and web/.
+  - Several parameters are ASSUMPTIONS, not measured: dispatch_delay (30-120 s), site costs
+    (1.0 / 1.5), exponential survival shape, band edges, max_tau_s, the +-30% demand scale,
+    and the 10% opening-hours flip.
+  - Uniform priors in Monte Carlo are deliberate (sources give ranges, not distributions);
+    a triangular prior was also tested (K=10 mean 0.166, 90% interval 0.084-0.302, vs 0.156
+    and 0.060-0.335 for uniform).
+  - Occupancy-schedule tests: scaling schedule values by 0.5-1.5 loses about 0.13% on
+    average at K=10 vs re-optimizing; flattening the schedule to constant demand loses 2.5%
+    at K=10. Most of the gain comes from WHERE the AEDs sit relative to people and paths.
+  - Results are expected values per year with an interval, never exact numbers.
+
+IDEAS FOR NEXT STEPS:
+  - Read aed/walknet.py and aed/geo.py to understand d_ij.
+  - Run the Python snippet and print real York numbers.
+  - Run the web app and compare it with the Python results.
+  - Try the linear survival form (Params(survival_form="linear")) and compare plans.
+
+
+=======================================================================
+PART 8: SETUP FACTS
+=======================================================================
+
+  - Repo: https://github.com/BrinHan/Math-Hacks-Project
+  - Cloned to: C:\Projects\Math-Hacks-Project (cloning into the original session folder
+    failed on Windows because the path was too long for Git)
+  - Latest commit at clone time: 47e2075 (merge of PR #11)
+  - Python env: .venv inside the project; dependencies from requirements.txt
+  - Run Python tools with: .venv/Scripts/python
+  - Tests: .venv/Scripts/python -m pytest -q  ->  134 passed in about 10 seconds
+  - Web app (not run yet): cd web, npm install, npm run dev
+  - This file is STUDY_NOTES.txt in the project folder. It is not part of the repo (untracked).
