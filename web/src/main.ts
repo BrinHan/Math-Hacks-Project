@@ -10,6 +10,8 @@ import type { Solution } from "./model/solvers";
 import { LeadData, leadInstance, loadLead, loadPhotos, loadYork, Photo, YorkData } from "./data";
 import { drawKCurve, drawTornado } from "./charts";
 import { RAMP_CSS, Zone, ZoneLayer } from "./zones";
+import { OutlineLayer } from "./outline";
+import { addTilt } from "./tilt";
 import { scenario, setInstance, setLeadInstance, Source, sourceKey } from "./scenario";
 import type { IlpReply, IlpRequest } from "./ilpWorker";
 import {
@@ -131,6 +133,11 @@ const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.
 
 // ---------- map ----------
 const map = L.map("map", { preferCanvas: true, zoomControl: false, maxBoundsViscosity: 1.0, zoomSnap: 0.5 });
+// 3D view: the map leans back like Google Maps' tilt; controls and docked UI sit flat on top.
+let tiltResize = false;
+let flatBounds: L.LatLngBounds | null = null;
+const tilt = addTilt(map, () => { tiltResize = true; });
+const mapOverlay = map.getContainer().nextElementSibling as HTMLElement;
 // Esri Dark Gray Canvas (no API key): a quiet dark base, with its street labels in a pane above the
 // reach rings so names stay readable.
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
@@ -144,6 +151,35 @@ map.getPane("labels")!.style.pointerEvents = "none";
 L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 19, maxNativeZoom: 16, pane: "labels" }).addTo(map);
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 L.control.zoom({ position: "bottomright" }).addTo(map);
+// "3D" button above the zoom: extrudes the building footprints by their floor counts.
+const view3D = new L.Control({ position: "bottomright" });
+let is3D = false;
+view3D.onAdd = () => {
+  const bar = L.DomUtil.create("div", "leaflet-bar view3d");
+  const a = L.DomUtil.create("a", "", bar) as HTMLAnchorElement;
+  a.href = "#"; a.role = "button"; a.textContent = "3D"; a.title = "Tilt the map and show buildings in 3D";
+  a.setAttribute("aria-pressed", "false");
+  L.DomEvent.disableClickPropagation(bar);
+  L.DomEvent.on(a, "click", (e) => {
+    L.DomEvent.preventDefault(e);
+    is3D = !is3D;
+    a.classList.toggle("on", is3D);
+    a.setAttribute("aria-pressed", String(is3D));
+    a.title = is3D ? "Back to the flat map" : "Tilt the map and show buildings in 3D";
+    buildingLayer.set3D(is3D);
+    // The tilted view shows more ground than the flat pan limits allow, so lift them while tilted.
+    if (is3D) { flatBounds = (map.options.maxBounds as L.LatLngBounds | undefined) ?? null; map.setMaxBounds(undefined as unknown as L.LatLngBounds); }
+    tilt.set(is3D);
+    if (!is3D && flatBounds) setTimeout(() => { if (!tilt.on && flatBounds) map.setMaxBounds(flatBounds); }, 700);
+    if (is3D && !map.hasLayer(buildingLayer)) {
+      buildingLayer.addTo(map);
+      const box = [...document.querySelectorAll<HTMLInputElement>("#layersField input")].find((i) => i.parentElement?.textContent?.includes("Building"));
+      if (box) box.checked = true;
+    }
+  });
+  return bar;
+};
+view3D.addTo(map);
 // Layers, toggled from the control at the top right. Each is cleared and refilled on redraw, so the
 // control's on/off state persists.
 // Reach zones on one canvas, clipped to the campus; uncovered campus ground shows red.
@@ -152,8 +188,16 @@ const demandLayer = L.layerGroup();                // raw demand points
 const candidateLayer = L.layerGroup();             // candidate sites without an AED
 const existingLayer = L.layerGroup().addTo(map);   // existing AEDs
 const newLayer = L.layerGroup().addTo(map);        // AEDs the optimizer recommends (and must-include)
-const buildingLayer = L.layerGroup().addTo(map);   // real building footprints (York dataset)
-const campusLayer = L.layerGroup().addTo(map);     // campus boundary: the area AEDs are planned for
+// Outlines repaint every frame, so they stay crisp while the map glides (vector canvas layers were
+// stretched mid-animation and snapped back afterwards).
+const buildingLayer = new OutlineLayer({
+  stroke: "#d4d4d4", width: 1.5, alpha: 0.9, fill: "#ffffff", fillAlpha: 0.16,
+  halo: { stroke: "#000000", width: 3.5, alpha: 0.45 },
+}).addTo(map);
+const campusLayer = new OutlineLayer({
+  stroke: "#f5f5f5", width: 2.5, alpha: 0.95, dash: [10, 7],
+  halo: { stroke: "#000000", width: 6, alpha: 0.35 },
+}).addTo(map); // campus boundary: the area AEDs are planned for
 // "Map details": layer toggles shown in a popover from the pill bar, like the other settings.
 const LAYERS: [string, L.Layer][] = [
   ["AED reach zones", heatLayer],
@@ -174,7 +218,10 @@ const LAYERS: [string, L.Layer][] = [
   for (const [label, layer] of LAYERS) {
     const row = document.createElement("label");
     const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: map.hasLayer(layer) });
-    box.addEventListener("change", () => (box.checked ? layer.addTo(map) : layer.remove()));
+    box.addEventListener("change", () => {
+      if (box.checked) layer.addTo(map); else layer.remove();
+      drawSelection(); // a selected site stays visible even if its layer was just hidden
+    });
     row.append(box, document.createTextNode(label));
     list.append(row);
   }
@@ -228,6 +275,7 @@ new ResizeObserver(([entry]) => {
   const size = `${Math.round(width)}x${Math.round(height)}`;
   if (size === lastSize) return; // ignore no-op notifications so a fly-to is never cancelled
   lastSize = size;
+  if (tiltResize || tilt.on) { tiltResize = false; return; } // tilting resizes the map on purpose
   lockToData();
 }).observe(document.getElementById("map")!);
 
@@ -260,7 +308,7 @@ legend.onAdd = () => {
     `<div class="legend-body"><h3>Time to fetch an AED and return</h3>` +
     `<div class="ramp" style="background:${RAMP_CSS}"></div>` +
     `<div class="ramp-scale"><span>0 min</span><span>ambulance · <b id="legendEms">9 min</b></span></div>` +
-    `<ul>` + item("#d73027", "Red: no AED before the ambulance") + `</ul>` +
+    `<ul>` + item("#d73027", "No AED before the ambulance") + `</ul>` +
     `<p class="note">Colours stop at the campus boundary.</p><hr />` +
     `<h3>AEDs</h3><ul>` +
     item(SITE.existing, "Existing", true) + item(SITE.new, "New", true) + item(SITE.locked, "Locked this period", true) +
@@ -294,26 +342,15 @@ function drawMap() {
   const editable = source.kind === "custom";
   const name = (j: number) => esc(inst.siteName?.[j] ?? `Site ${j}`);
 
-  for (const g of [demandLayer, candidateLayer, existingLayer, newLayer, buildingLayer]) g.clearLayers();
-  campusLayer.clearLayers();
+  for (const g of [demandLayer, candidateLayer, existingLayer, newLayer]) g.clearLayers();
+  // Campus boundary (soft halo under a dashed line) and real building footprints.
   const campusRing = source.kind === "lead" ? lead?.campus : source.kind === "york" ? york?.campus : undefined;
-  if (campusRing?.length) {
-    // Outline of the area the plan covers: a soft halo under a dashed line, so it reads on any base map.
-    L.polygon(campusRing, { color: "#000000", weight: 6, opacity: 0.35, fill: false, interactive: false }).addTo(campusLayer);
-    L.polygon(campusRing, { color: "#f5f5f5", weight: 2.5, opacity: 0.95, dashArray: "10 7", lineCap: "round", fill: false, interactive: false }).addTo(campusLayer);
-  }
-  if (source.kind === "lead" && lead?.footprints?.length) {
-    // The York team model's building footprints (OpenStreetMap), under the heatmap.
-    for (const fp of lead.footprints) {
-      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false })
-        .bindTooltip(esc(fp.name ?? ""), { sticky: true }).addTo(buildingLayer);
-    }
-  } else if (source.kind === "york" && york) {
-    // Campus boundary and real footprints, drawn under the heatmap so colours stay readable.
-    for (const fp of york.footprints) {
-      L.polygon(fp.ring, { color: "#8a8a8a", weight: 1, opacity: 0.7, fillColor: "#ededed", fillOpacity: 0.05, interactive: false }).addTo(buildingLayer);
-    }
-  }
+  campusLayer.setRings(campusRing?.length ? [campusRing] : []);
+  const footprints = source.kind === "lead" ? lead?.footprints : source.kind === "york" ? york?.footprints : undefined;
+  // Heights for 3D: OSM floor counts at about 3.5 m a floor (buildings without one count as 2 floors).
+  const fps = (footprints ?? []) as { ring: [number, number][]; levels?: number; holes?: [number, number][][] }[];
+  buildingLayer.setRings(fps.map((fp) => fp.ring), fps.map((fp) => 3.5 * (fp.levels || 2)), fps.map((fp) => fp.holes));
+  dropSoloPin(); // its marker is about to be replaced
   markers.clear();
 
   // Reach zones: for every AED that is open now, rings in real metres showing how far a bystander can
@@ -343,17 +380,18 @@ function drawMap() {
     const forced = inst.siteForced?.[j] === 1;
     if (x[j]) {
       const role = inst.siteExisting[j] ? "existing" : "new";
-      const m = L.circleMarker(pos, {
-        radius: MARKER_R, fillOpacity: 1, fillColor: open ? SITE[role] : SITE.locked,
-        // Must-include sites get a dashed white outline so they read as a planner's pin.
-        color: forced ? MUST : OUTLINE, weight: forced ? 3 : 2, dashArray: forced ? "3 2" : undefined,
+      // DOM pins keep their pixel size while the map zooms (canvas dots were scaled mid-zoom).
+      const m = L.marker(pos, {
+        icon: pinIcon(open ? SITE[role] : SITE.locked, 2 * MARKER_R, forced),
+        keyboard: false, riseOnHover: true,
       }).bindTooltip(`<b>${name(j)}</b> · ${role === "new" ? (forced ? "Must-include" : "Recommended") : "Existing"} AED<br>${cap(inst.siteKind[j])}${open ? "" : " · locked this period"}`)
         .addTo(role === "existing" ? existingLayer : newLayer);
       markers.set(j, m);
       wireSite(m, j, true);
     } else {
-      const m = L.circleMarker(pos, {
-        radius: editable ? 4.5 : 3, color: OUTLINE, weight: 1, fillColor: "#9e9e9e", fillOpacity: open ? 0.9 : 0.35,
+      const m = L.marker(pos, {
+        icon: pinIcon("#9e9e9e", editable ? 9 : 6, false, open ? 0.9 : 0.35),
+        keyboard: false,
       }).bindTooltip(`${name(j)} · candidate<br>${cap(inst.siteKind[j])}`).addTo(candidateLayer);
       wireSite(m, j, false);
     }
@@ -372,7 +410,19 @@ function drawMap() {
 
 // ---------- selection (table row <-> map marker) ----------
 const MARKER_R = 7;
-const markers = new Map<number, L.CircleMarker>();
+const markers = new Map<number, L.Marker>();
+/** A round AED pin drawn as a DOM element, so its size stays fixed in pixels at every zoom. */
+function pinIcon(fill: string, size: number, forced = false, opacity = 1) {
+  return L.divIcon({
+    className: "aed-pin",
+    iconSize: [size, size],
+    html: `<span class="dot${forced ? " forced" : ""}" style="background:${fill};opacity:${opacity}"></span>`,
+  });
+}
+/** A ring drawn as a DOM element under the pins (fixed size while zooming, like the pins). */
+function ringIcon(cls: string, size: number) {
+  return L.divIcon({ className: cls, iconSize: [size, size], html: "" });
+}
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 // The ring lives in its own SVG pane above the canvas overlay so it can carry a CSS class
 // and is never painted over by cells or markers.
@@ -380,18 +430,25 @@ map.createPane("selection");
 map.getPane("selection")!.style.zIndex = "460";
 map.getPane("selection")!.style.pointerEvents = "none";
 const ringRenderer = L.svg({ padding: 0.5, pane: "selection" });
-let ring: L.CircleMarker | null = null;
+let ring: L.Marker | null = null;
+// A selected site whose layer is switched off in Map details is still shown on its own, so the ring
+// never circles an empty spot.
+let soloPin: L.Marker | null = null;
+function dropSoloPin() {
+  if (soloPin && !map.hasLayer(existingLayer.hasLayer(soloPin) ? existingLayer : newLayer)) soloPin.remove();
+  soloPin = null;
+}
 
 function drawSelection() {
   ring?.remove();
   ring = null;
+  dropSoloPin();
   const m = state.selected === null ? undefined : markers.get(state.selected);
   if (!m) return;
-  ring = L.circleMarker(m.getLatLng(), {
-    renderer: ringRenderer, pane: "selection", radius: 13, color: ACCENT, weight: 2.5,
-    fill: true, fillColor: ACCENT, fillOpacity: 0.12, interactive: false, className: "sel-ring",
-  }).addTo(map);
-  m.bringToFront();
+  if (!map.hasLayer(m)) { m.addTo(map); soloPin = m; }
+  ring = L.marker(m.getLatLng(), { icon: ringIcon("sel-ring", 30), interactive: false, keyboard: false, pane: "shadowPane" }).addTo(map);
+  markers.forEach((mk) => mk.setZIndexOffset(0));
+  m.setZIndexOffset(1000);
 }
 
 /** Expand a site in the list (or fold it if it is already open) and ring it on the map. */
@@ -429,8 +486,10 @@ function flyToSite(at: L.LatLng) {
 }
 
 function hoverSite(j: number | null) {
-  markers.forEach((m, k) => m.setRadius(k === j ? MARKER_R + 3 : MARKER_R));
-  if (j !== null) markers.get(j)?.bringToFront();
+  markers.forEach((m, k) => {
+    m.getElement()?.classList.toggle("hover", k === j);
+    m.setZIndexOffset(k === j ? 2000 : k === state.selected ? 1000 : 0);
+  });
 }
 
 // ---------- custom data: commit, tools, editors ----------
@@ -531,7 +590,7 @@ editControl.onAdd = () => {
   return div;
 };
 editControl.addTo(map);
-const toolHint = L.DomUtil.create("div", "tool-hint", map.getContainer());
+const toolHint = L.DomUtil.create("div", "tool-hint", mapOverlay);
 toolHint.hidden = true;
 
 function setTool(t: Tool) {
@@ -564,7 +623,7 @@ map.on("click", (e: L.LeafletMouseEvent) => {
 
 // Drag a site marker to move it (custom data, select tool). A press without movement is a click.
 let dragJustEnded = false;
-function wireSite(m: L.CircleMarker, j: number, selectable: boolean) {
+function wireSite(m: L.Marker, j: number, selectable: boolean) {
   m.on("click", (e) => {
     L.DomEvent.stop(e);
     if (dragJustEnded) { dragJustEnded = false; return; }
@@ -605,11 +664,11 @@ function wireSite(m: L.CircleMarker, j: number, selectable: boolean) {
 // Editor popups pan into view (with room for the controls) instead of being clipped at the map edge.
 // The editor is a panel docked in the map corner (never clipped by the map edge), with a dashed ring
 // on the item being edited.
-const inspector = L.DomUtil.create("div", "inspector", map.getContainer());
+const inspector = L.DomUtil.create("div", "inspector", mapOverlay);
 inspector.hidden = true;
 L.DomEvent.disableClickPropagation(inspector);
 L.DomEvent.disableScrollPropagation(inspector);
-let editRing: L.CircleMarker | null = null;
+let editRing: L.Marker | null = null;
 
 function showInspector(content: HTMLElement, at: L.LatLngExpression) {
   const close = Object.assign(document.createElement("button"), { type: "button", className: "icon-btn insp-close", ariaLabel: "Close editor" });
@@ -618,10 +677,7 @@ function showInspector(content: HTMLElement, at: L.LatLngExpression) {
   inspector.replaceChildren(close, content);
   inspector.hidden = false;
   editRing?.remove();
-  editRing = L.circleMarker(at, {
-    renderer: ringRenderer, pane: "selection", radius: 12, color: "#ededed", weight: 2, dashArray: "4 3",
-    fill: false, interactive: false,
-  }).addTo(map);
+  editRing = L.marker(at, { icon: ringIcon("edit-ring", 28), interactive: false, keyboard: false, pane: "shadowPane" }).addTo(map);
   // Bring the edited item into view if the panel or an edge hides it: shift the map so the item sits
   // left of the panel.
   const animate = !document.hidden && !reducedMotion.matches;
@@ -1397,5 +1453,6 @@ ui.kcurve.addEventListener("pick", (e) => {
 
 // Development-only test hook (stripped from production builds): lets automated checks drive the editor.
 if (import.meta.env.DEV) {
-  (window as unknown as { __aed: unknown }).__aed = { openSiteEditor, openDemandEditor, getCustom: () => custom };
+  (window as unknown as { __aed: unknown }).__aed = { openSiteEditor, openDemandEditor, getCustom: () => custom, map, heatLayer, state, settings, L,
+    lastInst: () => scenario(settings().source, settings().emsResponseS).inst };
 }

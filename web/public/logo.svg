@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AED Planner">
+  <!-- Red rounded tile -->
+  <rect width="512" height="512" rx="120" fill="#d7283a"/>
+  <!-- Dashed reach circle around the pin's tip -->
+  <circle cx="244" cy="352" r="104" fill="none" stroke="#fff" stroke-width="20" stroke-linecap="round" stroke-dasharray="30 26"/>
+  <!-- Map pin with a red outline so it sits cleanly over the circle -->
+  <path d="M244 382 C 204 330, 150 280, 150 206 A 94 94 0 1 1 338 206 C 338 280, 284 330, 244 382 Z"
+        fill="#fff" stroke="#d7283a" stroke-width="16" stroke-linejoin="round" paint-order="stroke"/>
+  <!-- Heart cut out of the pin head -->
+  <path d="M244 262 L 196 214 A 30 30 0 1 1 244 176 A 30 30 0 1 1 292 214 Z" fill="#d7283a"/>
+  <!-- Check badge -->
+  <circle cx="350" cy="150" r="56" fill="#fff" stroke="#d7283a" stroke-width="14" paint-order="stroke"/>
+  <path d="M324 151 L 343 170 L 377 134" fill="none" stroke="#d7283a" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

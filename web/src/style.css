@@ -452,9 +452,11 @@ body.panel-open .leaflet-left { left: calc(var(--panel-w) + var(--gap)); }
 .legend.collapsed .legend-toggle::after { transform: rotate(-135deg) translateY(-2px); }
 .legend.collapsed .legend-body { display: none; }
 .legend-body { margin-top: 8px; width: 200px; }
-.legend h3 { margin: 6px 0 4px; font-size: 11.5px; font-weight: 700; color: var(--text-3); white-space: nowrap; }
+.legend h3 { margin: 6px 0 4px; font-size: 11.5px; font-weight: 700; color: var(--text-3); }
 .legend ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.legend li { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+/* Lines wrap inside the box instead of running past its edge. */
+.legend li { display: flex; align-items: flex-start; gap: 8px; line-height: 1.35; overflow-wrap: anywhere; }
+.legend li i { margin-top: 1.5px; }
 .legend li i { flex: none; width: 12px; height: 12px; border-radius: 3px; }
 .legend li i.dot { border-radius: 50%; }
 .legend hr { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
@@ -699,5 +701,49 @@ body:not(.panel-open) .panel { bottom: calc(100vh - var(--top) - var(--gap) - 58
 
 /* Gradient legend for the time-to-AED field */
 .legend .ramp { height: 10px; margin: 6px 0 4px; border-radius: 5px; }
-.legend .ramp-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-bottom: 6px; }
+.legend .ramp-scale { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-3); margin-bottom: 6px; }
 .legend .ramp-scale b { color: var(--text-2); font-weight: 700; }
+
+/* App logo in the panel header */
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-logo { flex: none; width: 32px; height: 32px; border-radius: 8px; display: block; }
+
+/* AED pins as DOM elements: fixed pixel size at every zoom, sliding into place during zoom animations. */
+.aed-pin { background: none; border: 0; }
+.aed-pin .dot {
+  display: block; width: 100%; height: 100%; border-radius: 50%;
+  box-shadow: 0 0 0 2px #171717, 0 1px 3px rgb(0 0 0 / 0.5);
+  transition: transform 0.15s ease-out;
+}
+.aed-pin .dot.forced { box-shadow: 0 0 0 2px #171717; outline: 2.5px dashed #f9ab00; outline-offset: 1px; }
+.aed-pin.hover .dot, .aed-pin:hover .dot { transform: scale(1.4); }
+.sel-ring { border: 2.5px solid #ededed; border-radius: 50%; background: rgb(237 237 237 / 0.12); box-sizing: border-box; animation: ring-pulse 1.6s ease-out infinite; }
+.edit-ring { border: 2px dashed #ededed; border-radius: 50%; box-sizing: border-box; }
+@keyframes ring-pulse { 0% { opacity: 1; } 70%, 100% { opacity: 0.35; } }
+
+/* 3D buildings toggle, stacked above the zoom buttons. */
+.view3d a { font-size: 14px !important; font-weight: 700; letter-spacing: 0.02em; border-bottom: 0 !important; }
+.view3d a.on { background: var(--accent, #e53935) !important; color: #ffffff !important; }
+
+/* Tilted 3D view (src/tilt.ts). The map is enlarged (twice the visible height, 1.8x the width) and
+   leaned back around its bottom edge; the start state is shifted so the view does not jump. */
+#map { transform-origin: 50% 100%; }
+#map.tilt-big {
+  top: calc(2 * var(--top) - 100vh); left: -40vw; right: -40vw;
+  transform: perspective(1500px) translateY(25%) rotateX(0deg);
+  transition: transform 0.6s var(--spring, ease);
+}
+#map.tilt-big.tilted { transform: perspective(1500px) translateY(0) rotateX(40deg); }
+.map-overlay {
+  position: fixed; inset: var(--top) 0 0 0; z-index: 1; pointer-events: none;
+  background: transparent !important; overflow: hidden;
+}
+.map-overlay .inspector { pointer-events: auto; }
+/* Haze over the far distance, like the horizon in Google Maps' tilt. */
+.map-overlay::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 34%; pointer-events: none;
+  background: linear-gradient(#171717 0%, #171717 18%, rgb(23 23 23 / 0) 100%);
+  opacity: 0; transition: opacity 0.6s;
+}
+.map-overlay.tilted::before { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { #map.tilt-big, .map-overlay::before { transition: none; } }
