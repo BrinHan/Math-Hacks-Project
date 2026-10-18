@@ -1116,6 +1116,7 @@ ui.search.addEventListener("keydown", (e) => {
 /** The warm card at the top of the panel: what this plan buys, in survivors per year. */
 const baseCache = new Map<string, number>();
 function drawSummary() {
+  const statsOut = document.getElementById("statsOut")!;
   const s = settings();
   const { inst, cov } = scenario(s.source, s.emsResponseS);
   const key = `${sourceKey(s.source)}:${s.emsResponseS}`;
@@ -1127,16 +1128,19 @@ function drawSummary() {
   if (!sol || sol.status === "updating") {
     ui.summaryTitle.textContent = "Finding the best sites…";
     ui.summaryBody.textContent = "Solving for the budget you set.";
+    statsOut.textContent = "…";
     return;
   }
   const nNew = sol.x.reduce((a, b, j) => a + (b && !inst.siteExisting[j] ? 1 : 0), 0);
   if (!nNew) {
+    statsOut.textContent = fmtLives(base);
     ui.summaryTitle.textContent = `${fmtLives(base)} lives saved a year`;
     ui.summaryBody.textContent = `Expected survivors with the ${installed} alone. Add some with the New AEDs filter.`;
     return;
   }
   const gain = sol.lives - base;
   const every = gain > 0 ? Math.round(1 / gain) : 0;
+  statsOut.textContent = `+${fmtLives(gain)}`;
   ui.summaryTitle.textContent = `+${fmtLives(gain)} lives saved a year`;
   ui.summaryBody.textContent = `${plural(nNew, "new AED")} on top of ${installed}` +
     (every > 1 ? `: about one more survivor every ${every} years.` : ".");
@@ -1290,7 +1294,7 @@ function showTab(name: string) {
   if (name === "charts") drawCharts();
 }
 ui.summary.addEventListener("click", () => {
-  // The card lives in the "All" popover: close it and hand focus back to its pill when the sheet closes.
+  // The card lives in the Stats popover: close it and hand focus back to its pill when the sheet closes.
   const from = popFor;
   closePop();
   sheetOpener = from ?? ui.summary;
@@ -1304,14 +1308,13 @@ sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
 });
 
 // ---------- filter pills and their popovers ----------
-// The controls are single elements that move into whichever popover is open, so "All" and the
-// single-control pills always show the same state.
+// The controls are single elements that move into whichever popover is open.
 const pop = document.getElementById("pop")!;
 const fieldStore = document.getElementById("fieldStore")!;
-fieldStore.append(ui.summary); // the lives-saved card is shown at the top of "All"
+fieldStore.append(ui.summary); // the lives-saved card is shown in the Stats popover
 const POPS: Record<string, string[]> = {
-  // "All" holds every setting, so the bar can drop the less-used Show and Dataset pills.
-  all: ["summary", "budgetField", "emsField", "periodField", "showField", "dataField"],
+  // "Stats" holds the lives-saved card (it opens the Insights charts).
+  stats: ["summary"],
   budget: ["budgetField"], ems: ["emsField"], time: ["periodField"], show: ["showField"], data: ["dataField"],
   layers: ["layersField"],
 };
@@ -1330,7 +1333,6 @@ function openPop(pill: HTMLButtonElement) {
   if (same) return;
   const name = pill.dataset.pop!;
   pop.append(...POPS[name].map((id) => document.getElementById(id)!));
-  pop.classList.toggle("wide", name === "all");
   pop.setAttribute("aria-label", pill.textContent!.trim());
   pop.hidden = false;
   pill.setAttribute("aria-expanded", "true");
