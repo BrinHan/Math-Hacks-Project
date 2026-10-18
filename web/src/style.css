@@ -747,3 +747,9 @@ body:not(.panel-open) .panel { bottom: calc(100vh - var(--top) - var(--gap) - 58
 }
 .map-overlay.tilted::before { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { #map.tilt-big, .map-overlay::before { transition: none; } }
+
+/* Sort menu: the open list is drawn by the browser, which gave it a white background under our light text. */
+.sort select { color-scheme: dark; }
+.sort select option { background: var(--surface); color: var(--text); }
+/* The lives-saved card sits at the top of the "All" popover. */
+.pop .summary { margin: 0 0 20px; }

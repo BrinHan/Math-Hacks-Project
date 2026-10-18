@@ -1289,7 +1289,13 @@ function showTab(name: string) {
   sheet.querySelectorAll<HTMLElement>("[role=tabpanel]").forEach((p) => { p.hidden = p.dataset.panel !== name; });
   if (name === "charts") drawCharts();
 }
-ui.summary.addEventListener("click", () => { sheetOpener = ui.summary; setSheet(true, "charts"); });
+ui.summary.addEventListener("click", () => {
+  // The card lives in the "All" popover: close it and hand focus back to its pill when the sheet closes.
+  const from = popFor;
+  closePop();
+  sheetOpener = from ?? ui.summary;
+  setSheet(true, "charts");
+});
 document.getElementById("sheetClose")!.addEventListener("click", () => setSheet(false));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden && pop.hidden) setSheet(false); });
 sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
@@ -1302,9 +1308,10 @@ sheet.querySelector(".tabs")!.addEventListener("click", (e) => {
 // single-control pills always show the same state.
 const pop = document.getElementById("pop")!;
 const fieldStore = document.getElementById("fieldStore")!;
+fieldStore.append(ui.summary); // the lives-saved card is shown at the top of "All"
 const POPS: Record<string, string[]> = {
   // "All" holds every setting, so the bar can drop the less-used Show and Dataset pills.
-  all: ["budgetField", "emsField", "periodField", "showField", "dataField"],
+  all: ["summary", "budgetField", "emsField", "periodField", "showField", "dataField"],
   budget: ["budgetField"], ems: ["emsField"], time: ["periodField"], show: ["showField"], data: ["dataField"],
   layers: ["layersField"],
 };
