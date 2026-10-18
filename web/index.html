@@ -71,9 +71,6 @@
 
     <!-- Scenario filters over the map. Each pill opens a popover holding the real control. -->
     <div class="filters" id="filters" role="toolbar" aria-label="Scenario">
-      <button type="button" class="fpill" data-pop="all" aria-haspopup="dialog" aria-expanded="false">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg>
-        All</button>
       <button type="button" class="fpill" data-pop="budget" aria-haspopup="dialog" aria-expanded="false">
         New AEDs <b id="budgetOut">10</b><i class="caret" aria-hidden="true"></i></button>
       <button type="button" class="fpill" data-pop="time" aria-haspopup="dialog" aria-expanded="false">
@@ -87,6 +84,9 @@
         <span id="showOut">All AEDs</span><i class="caret" aria-hidden="true"></i></button>
       <button type="button" class="fpill" data-pop="data" aria-haspopup="dialog" aria-expanded="false">
         <span id="dataOut">York Keele</span><i class="caret" aria-hidden="true"></i></button>
+      <button type="button" class="fpill" data-pop="stats" aria-haspopup="dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V11M12 20V5M19 20v-7"/></svg>
+        Stats <b id="statsOut"></b><i class="caret" aria-hidden="true"></i></button>
     </div>
     <div id="pop" class="pop" role="dialog" aria-modal="false" hidden></div>
 

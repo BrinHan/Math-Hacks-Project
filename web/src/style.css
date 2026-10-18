@@ -294,7 +294,6 @@ body:not(.panel-open) .panel-scroll { opacity: 0; pointer-events: none; }
   transform-origin: top left;
   animation: pop-in 0.22s var(--spring);
 }
-.pop.wide { width: 420px; }
 .pop .field + .field { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
 @keyframes pop-in { from { opacity: 0; transform: scale(0.96) translateY(-4px); } }
 
@@ -635,8 +634,6 @@ body:not(.panel-open) .panel { bottom: calc(100vh - var(--top) - var(--gap) - 58
 .filters { gap: 6px; left: calc(var(--gap) + var(--panel-w) + 14px); }
 .fpill { height: 36px; padding: 0 12px; gap: 6px; font-size: 13.5px; border-radius: 11px; }
 .fpill .caret { width: 6px; height: 6px; }
-/* Show and Dataset already live in the "All" menu; the bar keeps the everyday settings. */
-.fpill[data-pop="show"], .fpill[data-pop="data"] { display: none; }
 .layers-btn { width: auto; padding: 6px; border-radius: 12px; }
 .layers-btn .lthumb { width: 34px; height: 34px; border-radius: 8px; }
 .layers-btn .ltext { display: none; }
@@ -747,3 +744,9 @@ body:not(.panel-open) .panel { bottom: calc(100vh - var(--top) - var(--gap) - 58
 }
 .map-overlay.tilted::before { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { #map.tilt-big, .map-overlay::before { transition: none; } }
+
+/* Sort menu: the open list is drawn by the browser, which gave it a white background under our light text. */
+.sort select { color-scheme: dark; }
+.sort select option { background: var(--surface); color: var(--text); }
+/* The lives-saved card sits in the Stats popover. */
+.pop .summary { margin: 0 0 20px; }
